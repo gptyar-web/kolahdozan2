@@ -8,26 +8,45 @@ declare
   gate_id uuid;
   other_gate_id uuid;
   delay_id uuid;
+  gate_delay_id uuid;
+  gate_appeal_id uuid;
+  gate_password_hash text;
   appeal_id uuid;
   result jsonb;
   test_date date := ((now() at time zone 'Asia/Tehran')::date - 1);
   suffix text := left(replace(gen_random_uuid()::text,'-',''),10);
   id_1 text := '00' || lpad((floor(random()*100000000)::bigint)::text,8,'0');
+  id_3 text := '00' || lpad((floor(random()*100000000)::bigint)::text,8,'0');
+  id_4 text := '00' || lpad((floor(random()*100000000)::bigint)::text,8,'0');
   id_2 text := '00' || lpad((floor(random()*100000000)::bigint)::text,8,'0');
 begin
   admin_id := kh2_private.add_person('kh2_fixture_'||suffix,'TestOnly!'||suffix,'مدیر آزمایش تراکنشی','admin');
   perform set_config('request.jwt.claim.sub',admin_id::text,true);
-  result := public.kh2_act('add_gate',jsonb_build_object('username','gate1_'||suffix,'password','TestOnly!'||suffix,'full_name','نمایندهٔ اول'));
-  gate_id := (result->>'id')::uuid;
-  result := public.kh2_act('add_gate',jsonb_build_object('username','gate2_'||suffix,'password','TestOnly!'||suffix,'full_name','نمایندهٔ دوم'));
-  other_gate_id := (result->>'id')::uuid;
   result := public.kh2_act('import_students',jsonb_build_array(
     jsonb_build_object('username',id_1,'full_name','دانش‌آموز اول','class_name','آزمایش یک'),
     jsonb_build_object('username',id_2,'full_name','دانش‌آموز دوم','class_name','آزمایش دو'),
+    jsonb_build_object('username',id_3,'full_name','نمایندهٔ اول','class_name','آزمایش یک'),
+    jsonb_build_object('username',id_4,'full_name','نمایندهٔ دوم','class_name','آزمایش دو'),
     jsonb_build_object('username','invalid','full_name','ردیف نامعتبر','class_name','آزمایش سه')));
-  assert result->>'added' = '2' and jsonb_array_length(result->'errors') = 1, 'Batch student validation failed';
+  assert result->>'added' = '4' and jsonb_array_length(result->'errors') = 1, 'Batch student validation failed';
   select id into strict student_id from public.kh2_people where username=id_1;
   select id into strict other_id from public.kh2_people where username=id_2;
+  select id into strict gate_id from public.kh2_people where username=id_3;
+  select id into strict other_gate_id from public.kh2_people where username=id_4;
+  select encrypted_password into strict gate_password_hash from auth.users where id=gate_id;
+  result := public.kh2_act('add_gate',jsonb_build_object('username',id_3));
+  assert (result->>'id')::uuid = gate_id, 'Representative assignment must reuse the student account';
+  result := public.kh2_act('add_gate',jsonb_build_object('username',id_4));
+  assert (result->>'id')::uuid = other_gate_id, 'Second representative assignment failed';
+  assert exists(select 1 from public.kh2_people where id=gate_id and role='student' and gate_assigned_at is not null), 'Assignment removed the student role';
+  assert (select encrypted_password from auth.users where id=gate_id) = gate_password_hash, 'Assignment changed the existing password';
+  assert exists(select 1 from jsonb_array_elements(public.kh2_overview()->'staff') p where p->>'id'=gate_id::text), 'Assigned student does not appear in the staff list';
+  begin
+    perform public.kh2_act('add_gate',jsonb_build_object('username',id_3));
+    raise exception 'Duplicate representative assignment was accepted';
+  exception when raise_exception then assert sqlerrm='KH2_GATE_ALREADY_ASSIGNED', sqlerrm; end;
+  perform public.kh2_act('register_delay',jsonb_build_object('student_id',gate_id,'date_on',test_date));
+  select d.id into strict gate_delay_id from public.kh2_delays d where d.student_id=gate_id and date_on=test_date;
   assert exists(select 1 from auth.users u where u.id=student_id and extensions.crypt(id_1,u.encrypted_password)=u.encrypted_password), 'Initial password mismatch';
 
   result := public.kh2_act('import_students',jsonb_build_array(jsonb_build_object('username',id_1,'full_name','دانش‌آموز اول','class_name','آزمایش یک')));
@@ -38,6 +57,22 @@ begin
 
   perform set_config('request.jwt.claim.sub',gate_id::text,true);
   result := public.kh2_overview();
+  assert result->'me'->>'username'=id_3 and result->'me'->>'role'='student', 'Representative lost access to own student profile';
+  begin
+    perform public.kh2_act('add_gate',jsonb_build_object('username',id_1));
+    raise exception 'A representative can appoint other representatives';
+  exception when insufficient_privilege then null; end;
+  begin
+    perform public.kh2_act('register_delay',jsonb_build_object('student_id',gate_id,'date_on',test_date-1));
+    raise exception 'Representative registered own delay';
+  exception when insufficient_privilege then assert sqlerrm='KH2_OWN_DELAY', sqlerrm; end;
+  perform public.kh2_act('send_appeal',jsonb_build_object('delay_id',gate_delay_id,'reason','اعتراض شخصی نماینده'));
+  result := public.kh2_overview();
+  select (a->>'id')::uuid into strict gate_appeal_id from jsonb_array_elements(result->'appeals') a where a->>'delay_id'=gate_delay_id::text;
+  begin
+    perform public.kh2_act('review_appeal',jsonb_build_object('appeal_id',gate_appeal_id,'status','approved','response','نتیجه بررسی شد'));
+    raise exception 'Representative reviewed own appeal';
+  exception when raise_exception then assert sqlerrm='KH2_APPEAL_UNAVAILABLE', sqlerrm; end;
   assert exists(select 1 from jsonb_array_elements(result->'students') p where p->>'id'=student_id::text and not p ? 'username'), 'Gate student list exposed usernames';
   begin
     perform public.kh2_grades_for(student_id);

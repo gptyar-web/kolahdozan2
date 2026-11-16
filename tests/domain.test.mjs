@@ -33,7 +33,8 @@ test('demo workflow registers an appeal, restricts the student view and updates 
   await assert.rejects(demo.act('send_appeal',{delay_id:item.id,reason:'اعتراض تکراری'}),/KH2_DUPLICATE_APPEAL/);
   demo.selectDemoRole('gate');
   const {appeals,students}=await demo.overview();
-  assert.ok(students.every(s=>!s.username));
+  const gateMe=(await demo.overview()).me;
+  assert.ok(students.filter(s=>s.id!==gateMe.id).every(s=>!s.username));
   const appeal=appeals.find(a=>a.delay_id===item.id);
   await demo.act('review_appeal',{appeal_id:appeal.id,status:'approved',response:'نتیجه بررسی شد'});
   demo.selectDemoRole('student');
@@ -52,9 +53,16 @@ test('demo administrator can import students, assign grades and photos, and crea
   await demo.putPhoto(person.id,new File([new Uint8Array([137,80,78,71])],'0101111001.png',{type:'image/png'}));
   const picture=(await demo.overview()).students.find(p=>p.id===person.id).photo_path;
   assert.match((await demo.photoLinks([picture]))[picture],/^blob:/);
-  await demo.act('add_gate',{username:'test_representative',full_name:'نماینده نمونه',password:'TestPassword12'});
-  assert.ok((await demo.overview()).staff.some(p=>p.username==='test_representative'));
+  assert.equal((await demo.act('add_gate',{username:account.username})).id,person.id);
+  assert.ok((await demo.overview()).staff.some(p=>p.id===person.id&&p.role==='student'));
+  await assert.rejects(demo.act('add_gate',{username:account.username}),/KH2_GATE_ALREADY_ASSIGNED/);
+  await assert.rejects(demo.act('add_gate',{username:'0199999999'}),/KH2_STUDENT_MISSING/);
   demo.selectDemoRole('gate');
+  const rep=(await demo.overview()).me;
+  assert.equal(rep.role,'student');
+  assert.ok(rep.gate_assigned_at);
+  await assert.rejects(demo.act('register_delay',{student_id:rep.id,date_on:today()}),/KH2_OWN_DELAY/);
+  await demo.changePassword(rep.username,rep.username,'NewRepPassword12');
   await assert.rejects(demo.gradesFor(person.id),/KH2_FORBIDDEN/);
   await demo.act('register_delay',{student_id:person.id,date_on:today(),note:''});
   await assert.rejects(demo.act('register_delay',{student_id:person.id,date_on:today(),note:''}),/KH2_DUPLICATE_DELAY/);

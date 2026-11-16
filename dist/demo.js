@@ -10,10 +10,11 @@ const seededStudents=[
   ['رضا جعفری','یازدهم ریاضی','0010000011'],['یاسین اکبری','دوازدهم انسانی','0010000012']
 ].map(([full_name,class_name,username],index)=>({id:'sample-'+index,full_name,class_name,username,role:'student',created_at:now}));
 const admin={id:'manager',full_name:'مدیر دبیرستان',username:'demo_admin',role:'admin',created_at:now};
-const gate={id:'gate',full_name:'مهدی هاشمی',username:'demo_gate',role:'gate',created_at:now};
+const gate=seededStudents[7];
+gate.gate_assigned_at=now;
 const counts=[3,2,4,1,3,0,2,4,1,2];
 const initial={
-  students:seededStudents,staff:[gate],
+  students:seededStudents,
   delays:counts.flatMap((count,offset)=>Array.from({length:count},(_,j)=>({
     id:'delay-'+offset+'-'+j,student_id:seededStudents[(j+offset+(offset===2?10:0))%seededStudents.length].id,
     date_on:shift(now,-offset),recorder_id:gate.id,recorder_name:gate.full_name,note:'',status:'active'
@@ -30,18 +31,19 @@ let actor=admin;
 const photos={};
 
 export function selectDemoRole(role){
-  actor={admin,gate,student:database.students[0]}[role]??admin;
+  const sampleRep=database.students.find(person=>person.id===gate.id);
+  actor={admin,gate:sampleRep,student:database.students[0]}[role]??admin;
 }
 export function overview(){
-  const own=actor.role==='student';
+  const own=actor.role==='student'&&!actor.gate_assigned_at;
   return Promise.resolve({
     me:{...actor},
-    students:database.students.filter(p=>!own||p.id===actor.id).map(p=>({...p,username:actor.role==='gate'?undefined:p.username})),
-    staff:actor.role==='admin'?database.staff:[],
+    students:database.students.filter(p=>!own||p.id===actor.id).map(p=>({...p,username:actor.gate_assigned_at&&p.id!==actor.id?undefined:p.username})),
+    staff:actor.role==='admin'?database.students.filter(p=>p.gate_assigned_at):[],
     delays:database.delays.filter(d=>!own||d.student_id===actor.id)
       .map(d=>({...d,status:database.appeals.find(a=>a.delay_id===d.id)?.status??'active'}))
       .sort((a,b)=>b.date_on.localeCompare(a.date_on)),
-    appeals:database.appeals.filter(a=>actor.role==='admin'||(own?a.student_id===actor.id:a.recorder_id===actor.id))
+    appeals:database.appeals.filter(a=>actor.role==='admin'||a.student_id===actor.id||Boolean(actor.gate_assigned_at&&a.recorder_id===actor.id))
   });
 }
 export async function gradesFor(id){
@@ -65,7 +67,7 @@ export async function changePassword(username,previous,password){
 }
 export async function act(action,data){
   if(['import_students','import_grades','add_gate'].includes(action)&&actor.role!=='admin') throw new Error('KH2_FORBIDDEN');
-  if(['register_delay','review_appeal'].includes(action)&&actor.role==='student') throw new Error('KH2_FORBIDDEN');
+  if(['register_delay','review_appeal'].includes(action)&&actor.role==='student'&&!actor.gate_assigned_at) throw new Error('KH2_FORBIDDEN');
   if(action==='send_appeal'&&actor.role!=='student') throw new Error('KH2_FORBIDDEN');
   if(action==='import_students'||action==='import_grades'){
     const result={added:0,skipped:0,errors:[]};
@@ -90,10 +92,15 @@ export async function act(action,data){
     return result;
   }
   if(action==='add_gate'){
-    if([...database.staff,...database.students].some(p=>p.username===data.username)) throw new Error('KH2_DUPLICATE_USERNAME');
-    database.staff.push({...data,password:undefined,id:crypto.randomUUID(),role:'gate',created_at:now});
+    if(!/^\d{10}$/.test(data.username)) throw new Error('KH2_INVALID_NATIONAL_ID');
+    const person=database.students.find(p=>p.username===data.username);
+    if(!person) throw new Error('KH2_STUDENT_MISSING');
+    if(person.gate_assigned_at) throw new Error('KH2_GATE_ALREADY_ASSIGNED');
+    person.gate_assigned_at=today();
+    return {id:person.id};
   }
   if(action==='register_delay'){
+    if(data.student_id===actor.id) throw new Error('KH2_OWN_DELAY');
     if(!data.date_on||data.date_on>today()) throw new Error('KH2_INVALID_DATE');
     if(database.delays.some(d=>d.student_id===data.student_id&&d.date_on===data.date_on)) throw new Error('KH2_DUPLICATE_DELAY');
     database.delays.unshift({...data,id:crypto.randomUUID(),recorder_name:actor.full_name,recorder_id:actor.id,status:'active'});
@@ -107,7 +114,7 @@ export async function act(action,data){
   }
   if(action==='review_appeal'){
     if(data.response.trim().length<2) throw new Error('KH2_INVALID_RESPONSE');
-    const appeal=database.appeals.find(a=>a.id===data.appeal_id&&a.status==='pending'&&(actor.role==='admin'||a.recorder_id===actor.id));
+    const appeal=database.appeals.find(a=>a.id===data.appeal_id&&a.status==='pending'&&(actor.role==='admin'||(a.recorder_id===actor.id&&a.student_id!==actor.id)));
     if(!appeal) throw new Error('KH2_APPEAL_UNAVAILABLE');
     Object.assign(appeal,{status:data.status,response:data.response,reviewed_at:now});
   }
