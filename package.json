@@ -1,0 +1,1 @@
+{"name":"kh2-school-portal","private":true,"type":"module","scripts":{"test":"node --test","check":"node --check dist/app.js && node --check dist/api.js && node --check dist/domain.js"}}
