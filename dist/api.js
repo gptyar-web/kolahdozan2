@@ -82,7 +82,7 @@ export const act=(action,data)=>rpc('act',{p_action:action,p_data:data});
 export async function changePassword(username,previous,password) {
   const old=await request('/auth/v1/token?grant_type=password',{method:'POST',body:loginData(username,previous)});
   try {
-    await request('/auth/v1/user',{method:'PUT',body:{password},token:old.access_token});
+    await request('/auth/v1/user',{method:'PUT',body:{password:loginData(username,password).password},token:old.access_token});
   } finally {
     await request('/auth/v1/logout?scope=local',{method:'POST',token:old.access_token}).catch(()=>{});
   }
@@ -100,9 +100,10 @@ export async function photoLinks(paths) {
   const token=await getToken();
   const output={};
   for(let start=0;start<paths.length;start+=50){
-    const {data}=await request('/storage/v1/object/sign/kh2-student-photos',{
+    const result=await request('/storage/v1/object/sign/kh2-student-photos',{
       method:'POST',token,body:{paths:paths.slice(start,start+50),expiresIn:360}
-    }).then(result=>({data:Array.isArray(result)?result:result?.data??[]}));
+    });
+    const data=Array.isArray(result)?result:result?.data??[];
     for(const {path,signedURL,signedUrl} of data){
       const url=signedURL??signedUrl;
       if(path && typeof url==='string' && url.startsWith('/object/sign/')) output[path]=SUPABASE_URL+'/storage/v1'+url;

@@ -160,15 +160,14 @@ function dashboard(){
   const countMonth=current.filter(d=>d.date_on>=month).length;
   const waiting=appeals.filter(a=>a.status==='pending').length;
   const stats=isStudent()?[
-    ['همهٔ تأخیرها',current.length,'clock','peach','سوابق تأییدشده'],['تأخیرهای این ماه',countMonth,'calendar','blue',showDate(date,'month')],['اعتراض‌های باز',waiting,'message','mint','در انتظار بررسی'],['اعتراض‌های پذیرفته',appeals.filter(a=>a.status==='approved').length,'check','','از ابتدای ثبت']
+    ['همهٔ تأخیرها',current.length,'clock','peach','از ابتدای ثبت'],['تأخیرهای این ماه',countMonth,'calendar','blue',showDate(date,'month')],['اعتراض‌های باز',waiting,'message','mint','در انتظار بررسی'],['اعتراض‌های پذیرفته',appeals.filter(a=>a.status==='approved').length,'check','','از ابتدای ثبت']
   ]:[
     ['کل دانش‌آموزان',people.length,'users','','دانش‌آموزان ثبت‌شده'],['تأخیرهای امروز',countToday,'clock','peach','در روز جاری'],['تأخیرهای این ماه',countMonth,'calendar','blue',showDate(date,'month')],['اعتراض‌های باز',waiting,'message','mint','در انتظار بررسی']
   ];
   const actions=isStudent()?button('ثبت اعتراض','message','data-action="new-appeal"','primary'):
     button('چاپ گزارش','print','data-action="print"')+button('ثبت تأخیر جدید','plus','data-action="new-delay"','primary');
   const quick=isStudent()?[['clock','مشاهدهٔ تأخیرها','تاریخ و وضعیت هر تأخیر','data-page="delays"'],['message','ثبت اعتراض','انتخاب تاریخ از سوابق تأخیر','data-action="new-appeal"'],['user','پروفایل من','مشاهده اطلاعات و تغییر رمز','data-page="profile"']]:
-    [['plusUser',isAdmin()?'ثبت گروهی دانش‌آموزان':'ثبت تأخیر دانش‌آموز','data-quick',isAdmin()?'data-page="manage"':'data-action="new-delay"'],['users','جست‌وجوی دانش‌آموز','جست‌وجو با نام یا کلاس','data-page="students"'],['print','گزارش و چاپ','فهرست دانش‌آموزان و تاریخ‌های تأخیر','data-page="reports"']];
-  if(!isStudent()) quick[0][2]=isAdmin()?'ورود فهرست دانش‌آموزان، عکس و نمرات':'انتخاب دانش‌آموز و تاریخ';
+    [['plusUser',isAdmin()?'ثبت گروهی دانش‌آموزان':'ثبت تأخیر دانش‌آموز',isAdmin()?'ورود فهرست دانش‌آموزان، عکس و نمرات':'انتخاب دانش‌آموز و تاریخ',isAdmin()?'data-page="manage"':'data-action="new-delay"'],['users','جست‌وجوی دانش‌آموز','جست‌وجو با نام یا کلاس','data-page="students"'],['print','گزارش و چاپ','فهرست دانش‌آموزان و تاریخ‌های تأخیر','data-page="reports"']];
   const intro=isStudent()?'تأخیرهای خود را ببینید و وضعیت اعتراض‌ها را پیگیری کنید.':'وضعیت تأخیرها، اعتراض‌ها و پرونده‌های دانش‌آموزان را بررسی کنید.';
   const statHTML='<section class="stats" aria-label="خلاصهٔ وضعیت">'+stats.map(([name,value,i,color,note])=>'<article class="stat"><div class="stat-top"><span>'+e(name)+'</span>'+tile(i,color)+'</div><strong>'+fa(value)+'</strong><small>'+e(note)+'</small></article>').join('')+'</section>';
   const quickHTML='<div class="quick-grid">'+quick.map(([i,title,sub,attrs],index)=>'<button type="button" class="quick-row" '+attrs+'>'+tile(i,['','blue','peach'][index])+'<span><strong>'+e(title)+'</strong><small>'+e(sub)+'</small></span>'+icon('left')+'</button>').join('')+'</div>';
@@ -355,7 +354,22 @@ async function importSubmit(form,data){
   const kind=form.dataset.kind;
   const rows=importRows(source,kind);
   if(!rows.length||rows.length>300) throw new Error('KH2_INVALID_LIST');
-  const result=await backend().act('import_'+kind,rows);
+  const result={added:0,skipped:0,errors:[]};
+  const chunkSize=kind==='students'?20:100;
+  for(let start=0;start<rows.length;start+=chunkSize){
+    feedback(form,'در حال ثبت ردیف '+fa(start+1)+' از '+fa(rows.length),'');
+    try{
+      const part=await backend().act('import_'+kind,rows.slice(start,start+chunkSize));
+      result.added+=part.added;
+      result.skipped+=part.skipped;
+      result.errors.push(...part.errors.map(item=>({...item,row:item.row+start})));
+    }catch(error){
+      if(!start) throw error;
+      await fetchData().catch(()=>{});
+      feedback(form,stringifyErrors(result)+'\n'+friendly(error)+' برای ادامه دوباره فهرست را ارسال کنید.');
+      return;
+    }
+  }
   await fetchData();
   feedback(form,stringifyErrors(result),result.errors.length?'error':'ok');
   if(!result.errors.length) form.reset();

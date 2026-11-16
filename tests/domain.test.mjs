@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {active,calendarDays,classYear,dayParts,importRows,matches,showDate} from '../dist/domain.js';
+import {active,calendarDays,classYear,dayParts,importRows,matches,showDate,today} from '../dist/domain.js';
 import * as demo from '../dist/demo.js';
 
 test('Persian calendar handles leap days, Tehran school-year labels, and month boundaries',()=>{
@@ -38,4 +38,31 @@ test('demo workflow registers an appeal, restricts the student view and updates 
   await demo.act('review_appeal',{appeal_id:appeal.id,status:'approved',response:'نتیجه بررسی شد'});
   demo.selectDemoRole('student');
   assert.equal((await demo.overview()).delays.find(d=>d.id===item.id).status,'approved');
+});
+
+test('demo administrator can import students, assign grades and photos, and create representatives',async()=>{
+  demo.selectDemoRole('admin');
+  const account={username:'0101111001',full_name:'دانش‌آموز جدید',class_name:'دهم ریاضی'};
+  assert.equal((await demo.act('import_students',[account])).added,1);
+  assert.equal((await demo.act('import_students',[account])).skipped,1);
+  const person=(await demo.overview()).students.find(p=>p.username===account.username);
+  assert.ok(person);
+  assert.equal((await demo.act('import_grades',[{username:account.username,subject:'ریاضی',term:'نوبت اول',score:'20'}])).added,1);
+  assert.equal((await demo.gradesFor(person.id))[0].score,20);
+  await demo.putPhoto(person.id,new File([new Uint8Array([137,80,78,71])],'0101111001.png',{type:'image/png'}));
+  const picture=(await demo.overview()).students.find(p=>p.id===person.id).photo_path;
+  assert.match((await demo.photoLinks([picture]))[picture],/^blob:/);
+  await demo.act('add_gate',{username:'test_representative',full_name:'نماینده نمونه',password:'TestPassword12'});
+  assert.ok((await demo.overview()).staff.some(p=>p.username==='test_representative'));
+  demo.selectDemoRole('gate');
+  await assert.rejects(demo.gradesFor(person.id),/KH2_FORBIDDEN/);
+  await demo.act('register_delay',{student_id:person.id,date_on:today(),note:''});
+  await assert.rejects(demo.act('register_delay',{student_id:person.id,date_on:today(),note:''}),/KH2_DUPLICATE_DELAY/);
+  assert.equal((await demo.overview()).delays.find(d=>d.student_id===person.id).date_on,today());
+  demo.selectDemoRole('student');
+  await assert.rejects(demo.act('register_delay',{student_id:person.id,date_on:today()}),/KH2_FORBIDDEN/);
+  const {me}=await demo.overview();
+  await assert.rejects(demo.changePassword(me.username,'wrong','NewPassword12'),/invalid_credentials/);
+  await demo.changePassword(me.username,me.username,'NewPassword12');
+  await demo.changePassword(me.username,'NewPassword12','AnotherPassword12');
 });

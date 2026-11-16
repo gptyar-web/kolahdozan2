@@ -44,9 +44,13 @@ export function overview(){
     appeals:database.appeals.filter(a=>actor.role==='admin'||(own?a.student_id===actor.id:a.recorder_id===actor.id))
   });
 }
-export const gradesFor=id=>Promise.resolve(database.grades.filter(g=>g.student_id===id));
+export async function gradesFor(id){
+  if(actor.role!=='admin') throw new Error('KH2_FORBIDDEN');
+  return database.grades.filter(g=>g.student_id===id);
+}
 export const photoLinks=paths=>Promise.resolve(Object.fromEntries(paths.filter(p=>photos[p]).map(p=>[p,photos[p]])));
 export async function putPhoto(id,file){
+  if(actor.role!=='admin') throw new Error('KH2_FORBIDDEN');
   if(!['image/jpeg','image/png','image/webp'].includes(file.type)||!file.size||file.size>3145728) throw new Error('KH2_INVALID_PHOTO');
   const person=database.students.find(p=>p.id===id);
   if(person.photo_path) URL.revokeObjectURL(photos[person.photo_path]);
@@ -60,6 +64,9 @@ export async function changePassword(username,previous,password){
   database.passwords[username]=password;
 }
 export async function act(action,data){
+  if(['import_students','import_grades','add_gate'].includes(action)&&actor.role!=='admin') throw new Error('KH2_FORBIDDEN');
+  if(['register_delay','review_appeal'].includes(action)&&actor.role==='student') throw new Error('KH2_FORBIDDEN');
+  if(action==='send_appeal'&&actor.role!=='student') throw new Error('KH2_FORBIDDEN');
   if(action==='import_students'||action==='import_grades'){
     const result={added:0,skipped:0,errors:[]};
     if(!data.length || data.length>300) throw new Error('KH2_INVALID_LIST');
