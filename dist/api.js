@@ -83,6 +83,10 @@ export const moveStudent=(id,className,date,expectedClass)=>
   rpc('move_student',{p_student:id,p_class:className,p_effective:date,p_expected_class:expectedClass});
 export const gradesFor=(student)=>rpc('grades_for',{p_student:student});
 export const studentRecord=id=>rpc('student_record',{p_student:id});
+export const educators=()=>rpc('staff_directory');
+export const issueStaffPassword=(staff,password)=>rpc('issue_staff_password',{p_staff:staff,p_password:password});
+export const teacherAssignment=(staff,className,subject,remove=null)=>
+  rpc('set_teacher_assignment',{p_staff:staff,p_class:className,p_subject:subject,p_remove:remove});
 export const setBirthDate=(id,date)=>rpc('set_birth_date',{p_student:id,p_birth_date:date});
 export const act=(action,data)=>rpc('act',{p_action:action,p_data:data});
 export const updateDelay=(id,action,reason,student=null,date=null,excuseReason=null)=>
@@ -134,6 +138,9 @@ const messages={
   KH2_EXPIRED:'نشست شما پایان یافته است. دوباره وارد شوید.',
   KH2_INVALID_FOLLOWUP:'بازهٔ هفته یا ماه و تعداد ۱ تا ۳۱ را وارد کنید.',
   KH2_INVALID_CLASS:'نام کلاس باید بین ۱ تا ۸۰ نویسه باشد.',
+  KH2_STAFF_MISSING:'حساب این همکار پیدا نشد.',
+  KH2_PASSWORD_ALREADY_ISSUED:'رمز اولیهٔ این حساب قبلاً صادر شده است.',
+  KH2_INVALID_SUBJECT:'نام درس را وارد کنید. حداکثر ۱۰۰ نویسه.',
   KH2_UNCHANGED_CLASS:'کلاس مقصد با کلاس فعلی یکسان است.',
   KH2_CLASS_CHANGED:'کلاس دانش‌آموز تغییر کرده است. پرونده را دوباره باز کنید.',
   KH2_CLASS_MOVE_ORDER:'تاریخ جابه‌جایی باید بعد از آخرین انتقال ثبت‌شده باشد.',

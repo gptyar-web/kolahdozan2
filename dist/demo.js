@@ -10,6 +10,8 @@ const seededStudents=[
   ['رضا جعفری','یازدهم ریاضی','0010000011'],['یاسین اکبری','دوازدهم انسانی','0010000012']
 ].map(([full_name,class_name,username],index)=>({id:'sample-'+index,full_name,class_name,username,role:'student',created_at:now}));
 const admin={id:'manager',full_name:'مدیر دبیرستان',username:'demo_admin',role:'admin',created_at:now};
+const teacher={id:'demo-teacher',full_name:'دبیر آزمایشی',username:'demo_teacher',role:'teacher'};
+const deputy={id:'demo-deputy',full_name:'معاون آزمایشی',username:'demo_deputy',role:'deputy'};
 const gate=seededStudents[7];
 gate.gate_assigned_at=now;
 const counts=[3,2,4,1,3,0,2,4,1,2];
@@ -29,6 +31,8 @@ const initial={
   classMoves:[],
   followupSettings:{period:'month',threshold:3},
   inboxItems:[],
+  educators:[{...teacher,personnel_code:'100001',evaluator:true,password_pending:false},{...deputy,deputy:true,password_pending:true}],
+  assignments:[{id:'demo-teaching',staff_id:teacher.id,class_name:'دهم تجربی',subject:'ریاضی'}],
   passwords:{}
 };
 let database=structuredClone(initial);
@@ -45,15 +49,14 @@ function excuseText(reason){
 
 export function selectDemoRole(role){
   const sampleRep=database.students.find(person=>person.id===gate.id);
-  actor={admin,gate:sampleRep,student:database.students[0]}[role]??admin;
+  actor={admin,gate:sampleRep,student:database.students[0],teacher,deputy}[role]??admin;
 }
 export function overview(){
-  const own=actor.role==='student'&&!actor.gate_assigned_at;
   return Promise.resolve({
     me:{...actor},
-    students:database.students.filter(p=>!own||p.id===actor.id).map(p=>({...p,username:actor.gate_assigned_at&&p.id!==actor.id?undefined:p.username})),
+    students:database.students.filter(p=>canRecord()||p.id===actor.id).map(p=>({...p,username:actor.gate_assigned_at&&p.id!==actor.id?undefined:p.username})),
     staff:actor.role==='admin'?database.students.filter(p=>p.gate_assigned_at):[],
-    delays:database.delays.filter(d=>!own||d.student_id===actor.id)
+    delays:database.delays.filter(d=>canRecord()||d.student_id===actor.id)
       .map(d=>({...d,excused:Boolean(d.excuse_reason),
         excuse_reason:actor.role==='admin'||d.recorder_id===actor.id||d.student_id===actor.id?d.excuse_reason:undefined,
         status:d.cancelled_at?'cancelled':database.appeals.find(a=>a.delay_id===d.id)?.status??'active',
@@ -62,6 +65,37 @@ export function overview(){
     appeals:database.appeals.filter(a=>actor.role==='admin'||a.student_id===actor.id||Boolean(actor.gate_assigned_at&&a.recorder_id===actor.id))
       .map(a=>({...a,delay_cancelled:Boolean(database.delays.find(d=>d.id===a.delay_id)?.cancelled_at)}))
   });
+}
+export async function educators(){
+  if(!['admin','teacher','deputy'].includes(actor.role)) throw new Error('KH2_FORBIDDEN');
+  const all=actor.role==='admin';
+  return {
+    staff:database.educators.filter(person=>all||person.id===actor.id).map(person=>({...person})),
+    assignments:database.assignments.filter(row=>all||row.staff_id===actor.id),
+    classes:all?[...new Set(database.students.map(person=>person.class_name))]:[]
+  };
+}
+export async function issueStaffPassword(id,password){
+  if(actor.role!=='admin') throw new Error('KH2_FORBIDDEN');
+  const person=database.educators.find(item=>item.id===id);
+  if(!person) throw new Error('KH2_STAFF_MISSING');
+  if(!person.password_pending&&database.passwords[person.username]!==password) throw new Error('KH2_PASSWORD_ALREADY_ISSUED');
+  database.passwords[person.username]=password;
+  person.password_pending=false;
+}
+export async function teacherAssignment(id,className,subject,remove=null){
+  if(actor.role!=='admin') throw new Error('KH2_FORBIDDEN');
+  if(remove){
+    database.assignments=database.assignments.filter(row=>row.id!==remove||row.staff_id!==id);
+    return;
+  }
+  subject=subject.trim();
+  if(!database.educators.some(person=>person.id===id)) throw new Error('KH2_STAFF_MISSING');
+  if(!database.students.some(person=>person.class_name===className)) throw new Error('KH2_INVALID_CLASS');
+  if(!subject||[...subject].length>100) throw new Error('KH2_INVALID_SUBJECT');
+  if(!database.assignments.some(row=>row.staff_id===id&&row.class_name===className&&row.subject===subject)){
+    database.assignments.push({id:crypto.randomUUID(),staff_id:id,class_name:className,subject});
+  }
 }
 export async function gradesFor(id){
   if(actor.role!=='admin') throw new Error('KH2_FORBIDDEN');
@@ -100,7 +134,7 @@ export async function changePassword(username,previous,password){
 }
 export async function act(action,data){
   if(['import_students','import_grades','add_gate'].includes(action)&&actor.role!=='admin') throw new Error('KH2_FORBIDDEN');
-  if(['register_delay','review_appeal'].includes(action)&&actor.role==='student'&&!actor.gate_assigned_at) throw new Error('KH2_FORBIDDEN');
+  if(['register_delay','review_appeal'].includes(action)&&!canRecord()) throw new Error('KH2_FORBIDDEN');
   if(action==='send_appeal'&&actor.role!=='student') throw new Error('KH2_FORBIDDEN');
   if(action==='import_students'||action==='import_grades'){
     const result={added:0,skipped:0,errors:[]};
