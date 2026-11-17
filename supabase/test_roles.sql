@@ -14,6 +14,9 @@ declare
   correction_id uuid;
   assignment_date timestamptz;
   notice_id uuid;
+  parent_notice_id uuid := gen_random_uuid();
+  representative_notice_id uuid := gen_random_uuid();
+  excused_id uuid;
   gate_appeal_id uuid;
   gate_password_hash text;
   appeal_id uuid;
@@ -261,6 +264,66 @@ begin
   assert not exists(select 1 from jsonb_array_elements(result->'items') n where n->>'kind'='appeal_added'), 'Revoked gate account retained reviewer notifications';
   assert exists(select 1 from public.kh2_inbox_items where recipient_id=gate_id and kind='appeal_added'), 'Recorder did not receive an appeal notification before revocation';
   assert exists(select 1 from public.kh2_inbox_items where recipient_id=admin_id and kind='appeal_added'), 'Administrator did not receive an unassigned appeal notification';
+
+  assert not has_function_privilege('anon','public.kh2_request_parent(uuid,uuid)','EXECUTE'), 'Anonymous caller can request a parent';
+  assert not has_function_privilege('anon','public.kh2_update_delay(uuid,text,text,uuid,date,text)','EXECUTE'), 'Anonymous caller can edit a delay';
+  begin
+    perform public.kh2_request_parent(student_id,gen_random_uuid());
+    raise exception 'Former representative sent a parent request';
+  exception when insufficient_privilege then assert sqlerrm='KH2_FORBIDDEN'; end;
+  perform set_config('request.jwt.claim.sub',admin_id::text,true);
+  perform public.kh2_request_parent(student_id,parent_notice_id);
+  perform public.kh2_request_parent(student_id,parent_notice_id);
+  assert (select count(*) from public.kh2_inbox_items where id=parent_notice_id)=1, 'Retry duplicated a parent request';
+
+  perform set_config('request.jwt.claim.sub',other_gate_id::text,true);
+  perform public.kh2_request_parent(student_id,representative_notice_id);
+  begin
+    perform public.kh2_request_parent(student_id,parent_notice_id);
+    raise exception 'A representative reused another sender’s request';
+  exception when raise_exception then assert sqlerrm='KH2_PARENT_REQUEST_CONFLICT'; end;
+  begin
+    perform public.kh2_update_delay(delay_id,'cancel','دلیل آزمایشی',null,null,null);
+    raise exception 'A representative cancelled another recorder’s delay';
+  exception when insufficient_privilege then assert sqlerrm='KH2_FORBIDDEN'; end;
+  begin
+    perform public.kh2_register_delays(array[other_id],array[test_date-31],'',E' \n\t');
+    raise exception 'A blank excuse was accepted';
+  exception when raise_exception then assert sqlerrm='KH2_INVALID_EXCUSE_REASON'; end;
+
+  result := public.kh2_register_delays(array[other_id],array[test_date-31,test_date-32],'','دلیل موجه آزمایشی');
+  assert (result->>'added')::int=2, 'Excused batch registration failed';
+  select d.id into strict excused_id from public.kh2_delays d where d.student_id=other_id and d.date_on=test_date-31;
+  perform public.kh2_update_delay(excused_id,'correct','اصلاح آزمایشی',other_id,test_date-31,'دلیل تازه');
+  assert exists(select 1 from public.kh2_delays where id=excused_id and excuse_reason='دلیل تازه' and cancelled_at is null), 'Excuse correction did not preserve the original delay';
+  perform public.kh2_update_delay(excused_id,'correct','اصلاح دوباره',other_id,test_date-31,null);
+  assert exists(select 1 from public.kh2_delays where id=excused_id and excuse_reason is null and cancelled_at is null), 'Excused status could not be cleared';
+  perform public.kh2_update_delay(excused_id,'cancel','لغو آزمایشی',null,null,null);
+  assert exists(select 1 from public.kh2_delays where id=excused_id and cancelled_at is not null), 'Representative could not cancel an own delay';
+
+  perform set_config('request.jwt.claim.sub',admin_id::text,true);
+  assert jsonb_array_length(public.kh2_delay_history(excused_id))=3, 'Excuse changes were not retained with cancellation history';
+  perform public.kh2_register_delays(array[student_id],array[test_date-33],'','علت خصوصی');
+  select d.id into strict excused_id from public.kh2_delays d where d.student_id=test_case.student_id and d.date_on=test_date-33;
+  perform set_config('request.jwt.claim.sub',other_gate_id::text,true);
+  result := public.kh2_overview();
+  assert exists(select 1 from jsonb_array_elements(result->'delays') d
+    where d->>'id'=excused_id::text and d->>'excused'='true' and not d ? 'excuse_reason'), 'Another representative could see a private excuse';
+
+  perform set_config('request.jwt.claim.sub',other_id::text,true);
+  result := public.kh2_inbox(false,parent_notice_id);
+  assert not exists(select 1 from jsonb_array_elements(result->'items') n where n->>'kind'='parent_requested'), 'Parent request exposed to another student';
+  perform set_config('request.jwt.claim.sub',student_id::text,true);
+  result := public.kh2_inbox();
+  assert (select count(*) from jsonb_array_elements(result->'items') n
+    where n->>'kind'='parent_requested' and n->>'delay_id' is null and n->>'read_at' is null)=2, 'Both parent requests did not reach the recipient';
+  result := public.kh2_inbox(false,parent_notice_id);
+  assert exists(select 1 from jsonb_array_elements(result->'items') n
+    where n->>'id'=parent_notice_id::text and n->>'read_at' is not null), 'Parent request was not marked read';
+  begin
+    perform public.kh2_request_parent(other_id,gen_random_uuid());
+    raise exception 'Student sent a parent request';
+  exception when insufficient_privilege then assert sqlerrm='KH2_FORBIDDEN'; end;
 
   raise notice 'School portal role and data checks passed';
 end;

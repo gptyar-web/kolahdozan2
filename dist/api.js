@@ -85,12 +85,13 @@ export const gradesFor=(student)=>rpc('grades_for',{p_student:student});
 export const studentRecord=id=>rpc('student_record',{p_student:id});
 export const setBirthDate=(id,date)=>rpc('set_birth_date',{p_student:id,p_birth_date:date});
 export const act=(action,data)=>rpc('act',{p_action:action,p_data:data});
-export const updateDelay=(id,action,reason,student=null,date=null)=>
-  rpc('update_delay',{p_delay:id,p_action:action,p_reason:reason,p_student:student,p_date:date});
+export const updateDelay=(id,action,reason,student=null,date=null,excuseReason=null)=>
+  rpc('update_delay',{p_delay:id,p_action:action,p_reason:reason,p_student:student,p_date:date,p_excuse_reason:excuseReason});
+export const requestParent=(student,id)=>rpc('request_parent',{p_student:student,p_request_id:id});
 export const delayHistory=id=>rpc('delay_history',{p_delay:id});
 export const revokeGate=(id,assignedDate)=>rpc('revoke_gate',{p_person:id,p_assigned_at:assignedDate??null});
-export function registerDelays(studentIds,days,note) {
-  return rpc('register_delays',{p_student_ids:studentIds,p_dates:days,p_note:note});
+export function registerDelays(studentIds,days,note,excuseReason=null) {
+  return rpc('register_delays',{p_student_ids:studentIds,p_dates:days,p_note:note,p_excuse_reason:excuseReason});
 }
 
 export async function changePassword(username,previous,password) {
@@ -137,7 +138,9 @@ const messages={
   KH2_CLASS_CHANGED:'کلاس دانش‌آموز تغییر کرده است. پرونده را دوباره باز کنید.',
   KH2_CLASS_MOVE_ORDER:'تاریخ جابه‌جایی باید بعد از آخرین انتقال ثبت‌شده باشد.',
   KH2_INVALID_CHANGE_REASON:'دلیل تغییر باید ۳ تا ۴۰۰ نویسه باشد.',
-  KH2_UNCHANGED_DELAY:'تاریخ یا دانش‌آموز را تغییر دهید.',
+  KH2_UNCHANGED_DELAY:'تاریخ، دانش‌آموز یا وضعیت موجه بودن را تغییر دهید.',
+  KH2_INVALID_EXCUSE_REASON:'علت موجه بودن را در حداکثر ۴۰۰ نویسه وارد کنید.',
+  KH2_PARENT_REQUEST_CONFLICT:'شناسهٔ درخواست تکراری است. دوباره پنجره را باز کنید.',
   KH2_DELAY_UNAVAILABLE:'این تأخیر قبلاً لغو شده یا پیدا نشد.',
   KH2_GATE_NOT_ASSIGNED:'این دسترسی قبلاً تغییر کرده است. فهرست نمایندگان را تازه کنید.',
   KH2_XLSX_UNAVAILABLE:'بارگیری ابزار خروجی اکسل انجام نشد. دوباره تلاش کنید.',

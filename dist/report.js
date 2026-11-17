@@ -40,23 +40,25 @@ function reportClasses(person,moves,start,end){
 }
 
 export function reportRows(people,delays,start='',end='',options={}){
-  const {classMoves=new Map(),include=()=>true}=options;
+  const {classMoves=new Map(),include=()=>true,excuse='all'}=options;
   const byStudent=new Map();
   for(const delay of active(delays)){
     if((start&&delay.date_on<start)||(end&&delay.date_on>end)) continue;
+    if(excuse!=='all'&&Boolean(delay.excused)!==(excuse==='excused')) continue;
     if(!byStudent.has(delay.student_id)) byStudent.set(delay.student_id,[]);
-    byStudent.get(delay.student_id).push(delay.date_on);
+    byStudent.get(delay.student_id).push(delay);
   }
   return people.flatMap(person=>{
     const history=classMoves.get(person.id)??[];
     const groups=new Map(reportClasses(person,history,start,end).map(name=>[name,[]]));
-    for(const date of byStudent.get(person.id)??[]){
-      const name=studentClassOn(person,date,history);
+    for(const delay of byStudent.get(person.id)??[]){
+      const name=studentClassOn(person,delay.date_on,history);
       if(!groups.has(name)) groups.set(name,[]);
-      groups.get(name).push(date);
+      groups.get(name).push(delay);
     }
     return [...groups].filter(([name])=>include(person,name))
-      .map(([name,dates])=>({person:{...person,class_name:name},dates:dates.sort()}));
+      .map(([name,entries])=>({person:{...person,class_name:name},dates:entries.map(delay=>delay.date_on).sort(),
+        excused:entries.filter(delay=>delay.excused).length}));
   });
 }
 
@@ -118,12 +120,12 @@ export function reportWorkbook(xlsx,rows,period){
   const book=xlsx.utils.book_new();
   for(const [title,students] of classes(rows)){
     const maxDates=Math.max(1,...students.map(row=>row.dates.length));
-    const columns=['نام و نام خانوادگی','کلاس','تعداد تأخیر',...Array.from({length:maxDates},(_,i)=>'تاریخ '+fa(i+1))];
-    const data=[[school+' · '+period],columns,...students.map(({person,dates})=>[
-      person.full_name,person.class_name,dates.length,...dates.map(reportDate)
+    const columns=['نام و نام خانوادگی','کلاس','تعداد تأخیر','موجه','غیرموجه',...Array.from({length:maxDates},(_,i)=>'تاریخ '+fa(i+1))];
+    const data=[[school+' · '+period],columns,...students.map(({person,dates,excused=0})=>[
+      person.full_name,person.class_name,dates.length,excused,dates.length-excused,...dates.map(reportDate)
     ])];
     const sheet=xlsx.utils.aoa_to_sheet(data);
-    sheet['!cols']=[{wch:30},{wch:18},{wch:15},...Array.from({length:maxDates},()=>({wch:11}))];
+    sheet['!cols']=[{wch:30},{wch:18},{wch:15},{wch:10},{wch:10},...Array.from({length:maxDates},()=>({wch:11}))];
     sheet['!merges']=[{s:{r:0,c:0},e:{r:0,c:columns.length-1}}];
     sheet['!autofilter']={ref:xlsx.utils.encode_range({s:{r:1,c:0},e:{r:data.length-1,c:columns.length-1}})};
     const safeTitle=title.replace(/[\\/?*\[\]:]/g,' ').trim().slice(0,22);

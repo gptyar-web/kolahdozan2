@@ -216,6 +216,8 @@ textarea{resize:vertical}
 .delay-fields{border:0;margin:0;min-width:0;padding:0}
 .delay-group{display:grid;gap:6px;justify-items:start}
 .delay-group>.field,.delay-group>.person-options{width:100%}
+.delay-status{display:flex;flex-wrap:wrap;gap:5px}
+.excuse-reason{display:block;margin-top:4px;max-width:30ch;overflow-wrap:anywhere}
 .delay-group .calendar{width:100%;margin-top:0}
 .delay-chips{display:flex;flex-wrap:wrap;gap:5px;width:100%;max-height:120px;overflow:auto;list-style:none;margin:0;padding:3px}
 .delay-modes>.btn{white-space:normal;text-align:start}

@@ -195,3 +195,47 @@ test('student inbox is private and shows both the delay and appeal result',async
   assert.ok((await demo.inbox()).items.some(item=>item.kind==='appeal_approved'&&item.delay_id===delay.id));
   assert.equal((await demo.inbox(true)).unread,0);
 });
+
+test('excused delays have separate report counts and do not meet the follow-up threshold',()=>{
+  const person={id:'1',full_name:'نمونه',class_name:'۷۰۱'};
+  const delays=[
+    {student_id:person.id,date_on:'2026-11-15',excused:true},
+    {student_id:person.id,date_on:'2026-11-16',excused:false},
+    {student_id:person.id,date_on:'2026-11-14',excused:true,status:'cancelled'}
+  ];
+  const rows=reportRows([person],delays);
+  assert.equal(rows[0].excused,1);
+  assert.equal(rows[0].dates.length,2);
+  assert.deepEqual(reportRows([person],delays,'','',{excuse:'excused'})[0].dates,['2026-11-15']);
+  assert.deepEqual(reportRows([person],delays,'','',{excuse:'unexcused'})[0].dates,['2026-11-16']);
+  assert.deepEqual(followupRows([person],delays,{period:'week',threshold:2},'2026-11-16'),[]);
+});
+
+test('representatives can correct their own excuses and send a private parent request',async()=>{
+  const portal=await import('../dist/demo.js?parent-request-test');
+  const pupil=(await portal.overview()).students[0];
+  const day=shift(today(),-80);
+  const requestId=crypto.randomUUID();
+  await portal.registerDelays([pupil.id],[shift(day,-1)],'','علت خصوصی');
+  const adminDelay=(await portal.overview()).delays.find(row=>row.date_on===shift(day,-1));
+  portal.selectDemoRole('gate');
+  assert.equal((await portal.overview()).delays.find(row=>row.id===adminDelay.id).excuse_reason,undefined);
+  await assert.rejects(portal.updateDelay(adminDelay.id,'cancel','دلیل آزمایشی'),/KH2_FORBIDDEN/);
+  await assert.rejects(portal.registerDelays([pupil.id],[day],'',' '),/KH2_INVALID_EXCUSE_REASON/);
+  await portal.registerDelays([pupil.id],[day],'','علت نخست');
+  const original=(await portal.overview()).delays.find(row=>row.date_on===day);
+  await portal.updateDelay(original.id,'correct','اصلاح دلیل',pupil.id,day,'علت اصلاح‌شده');
+  assert.equal((await portal.overview()).delays.find(row=>row.id===original.id).excuse_reason,'علت اصلاح‌شده');
+  await portal.updateDelay(original.id,'cancel','لغو آزمایشی');
+  assert.equal((await portal.overview()).delays.find(row=>row.id===original.id).status,'cancelled');
+  await portal.requestParent(pupil.id,requestId);
+  await portal.requestParent(pupil.id,requestId);
+  assert.ok(!(await portal.inbox()).items.some(item=>item.id===requestId));
+  portal.selectDemoRole('student');
+  const items=(await portal.inbox()).items.filter(item=>item.id===requestId&&item.kind==='parent_requested');
+  assert.equal(items.length,1);
+  assert.equal(items[0].delay_id,null);
+  await portal.inbox(false,requestId);
+  assert.ok((await portal.inbox()).items.find(item=>item.id===requestId).read_at);
+  await assert.rejects(portal.requestParent('sample-1',crypto.randomUUID()),/KH2_FORBIDDEN/);
+});

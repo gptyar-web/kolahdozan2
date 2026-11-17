@@ -34,6 +34,14 @@ const initial={
 let database=structuredClone(initial);
 let actor=admin;
 const photos={};
+const canRecord=()=>actor.role==='admin'||Boolean(actor.gate_assigned_at);
+
+function excuseText(reason){
+  if(reason==null) return null;
+  const text=reason.trim();
+  if(!text||[...text].length>400) throw new Error('KH2_INVALID_EXCUSE_REASON');
+  return text;
+}
 
 export function selectDemoRole(role){
   const sampleRep=database.students.find(person=>person.id===gate.id);
@@ -46,7 +54,9 @@ export function overview(){
     students:database.students.filter(p=>!own||p.id===actor.id).map(p=>({...p,username:actor.gate_assigned_at&&p.id!==actor.id?undefined:p.username})),
     staff:actor.role==='admin'?database.students.filter(p=>p.gate_assigned_at):[],
     delays:database.delays.filter(d=>!own||d.student_id===actor.id)
-      .map(d=>({...d,status:d.cancelled_at?'cancelled':database.appeals.find(a=>a.delay_id===d.id)?.status??'active',
+      .map(d=>({...d,excused:Boolean(d.excuse_reason),
+        excuse_reason:actor.role==='admin'||d.recorder_id===actor.id||d.student_id===actor.id?d.excuse_reason:undefined,
+        status:d.cancelled_at?'cancelled':database.appeals.find(a=>a.delay_id===d.id)?.status??'active',
         has_history:actor.role==='admin'&&database.changes.some(item=>item.original_id===d.id||item.replacement_id===d.id)}))
       .sort((a,b)=>b.date_on.localeCompare(a.date_on)),
     appeals:database.appeals.filter(a=>actor.role==='admin'||a.student_id===actor.id||Boolean(actor.gate_assigned_at&&a.recorder_id===actor.id))
@@ -147,8 +157,9 @@ export async function act(action,data){
 }
 
 
-export async function registerDelays(studentIds,days,note=''){
-  if(actor.role==='student'&&!actor.gate_assigned_at) throw new Error('KH2_FORBIDDEN');
+export async function registerDelays(studentIds,days,note='',reason=null){
+  if(!canRecord()) throw new Error('KH2_FORBIDDEN');
+  const excuse_reason=excuseText(reason);
   const people=[...new Set(studentIds)], dates=[...new Set(days)];
   if(!people.length||!dates.length||(people.length>1&&dates.length>1)) throw new Error('KH2_INVALID_DELAY_BATCH');
   if(dates.some(day=>!day||day<'1900-01-01'||day>today())) throw new Error('KH2_INVALID_DATE');
@@ -162,7 +173,7 @@ export async function registerDelays(studentIds,days,note=''){
         result.skipped++;
         continue;
       }
-      database.delays.unshift({student_id,date_on,note:note.trim(),id:crypto.randomUUID(),recorder_name:actor.full_name,recorder_id:actor.id,status:'active'});
+      database.delays.unshift({student_id,date_on,note:note.trim(),excuse_reason,id:crypto.randomUUID(),recorder_name:actor.full_name,recorder_id:actor.id,status:'active'});
       addNotification(student_id,database.delays[0],'delay_added');
       result.added++;
     }
@@ -171,27 +182,37 @@ export async function registerDelays(studentIds,days,note=''){
 }
 
 
-export async function updateDelay(id,action,reason,studentId,date){
-  if(actor.role!=='admin') throw new Error('KH2_FORBIDDEN');
+export async function updateDelay(id,action,reason,studentId,date,excuseReason){
+  if(!canRecord()) throw new Error('KH2_FORBIDDEN');
+  if(!['correct','cancel'].includes(action)) throw new Error('KH2_INVALID_ACTION');
   const trimmed=reason.trim();
   if(trimmed.length<3||trimmed.length>400) throw new Error('KH2_INVALID_CHANGE_REASON');
   const original=database.delays.find(d=>d.id===id&&!d.cancelled_at);
   if(!original) throw new Error('KH2_DELAY_UNAVAILABLE');
-  const snapshot=(p,date_on)=>({student_id:p.id,full_name:p.full_name,class_name:p.class_name,date_on});
-  const before=snapshot(database.students.find(p=>p.id===original.student_id),original.date_on);
+  if(actor.role!=='admin'&&(original.recorder_id!==actor.id||original.student_id===actor.id)) throw new Error('KH2_FORBIDDEN');
+  const snapshot=(p,date_on,excuse_reason)=>({student_id:p.id,full_name:p.full_name,class_name:p.class_name,date_on,excuse_reason});
+  const before=snapshot(database.students.find(p=>p.id===original.student_id),original.date_on,original.excuse_reason??null);
   const now=new Date().toISOString();
   let after=null, replacement=null;
   if(action==='correct'){
     if(!date||date<'1900-01-01'||date>today()) throw new Error('KH2_INVALID_DATE');
+    if(studentId===actor.id) throw new Error('KH2_OWN_DELAY');
     const person=database.students.find(p=>p.id===studentId);
     if(!person) throw new Error('KH2_STUDENT_MISSING');
-    if(studentId===original.student_id&&date===original.date_on) throw new Error('KH2_UNCHANGED_DELAY');
-    const result=await registerDelays([studentId],[date],studentId===original.student_id?original.note:'');
-    if(!result.added) throw new Error('KH2_DUPLICATE_DELAY');
-    replacement=database.delays[0];
-    after=snapshot(person,date);
-  }else if(action!=='cancel') throw new Error('KH2_INVALID_ACTION');
-  original.cancelled_at=now;
+    const sameStudent=studentId===original.student_id;
+    const excuse=excuseReason===undefined?(sameStudent?before.excuse_reason:null):excuseText(excuseReason);
+    if(sameStudent&&date===original.date_on){
+      if(excuse===before.excuse_reason) throw new Error('KH2_UNCHANGED_DELAY');
+      original.excuse_reason=excuse;
+      action='excuse';
+    }else{
+      const result=await registerDelays([studentId],[date],sameStudent?original.note:'',excuse);
+      if(!result.added) throw new Error('KH2_DUPLICATE_DELAY');
+      replacement=database.delays[0];
+    }
+    after=snapshot(person,date,excuse);
+  }
+  if(action!=='excuse') original.cancelled_at=now;
   database.changes.unshift({original_id:id,replacement_id:replacement?.id,action,before_entry:before,after_entry:after,
     reason:trimmed,changed_by_name:actor.full_name,changed_at:now});
   return {ok:true,replacement_id:replacement?.id};
@@ -212,6 +233,19 @@ export async function revokeGate(id,assignedDate){
 
 function addNotification(recipientId,delay,kind){
   database.inboxItems.unshift({id:crypto.randomUUID(),kind,delay_id:delay.id,date_on:delay.date_on,created_at:new Date().toISOString(),recipientId});
+}
+export async function requestParent(studentId,id){
+  if(!canRecord()||studentId===actor.id) throw new Error('KH2_FORBIDDEN');
+  if(!database.students.some(person=>person.id===studentId)) throw new Error('KH2_STUDENT_MISSING');
+  const existing=database.inboxItems.find(item=>item.id===id);
+  if(existing){
+    if(existing.kind!=='parent_requested'||existing.recipientId!==studentId||existing.requestedBy!==actor.id){
+      throw new Error('KH2_PARENT_REQUEST_CONFLICT');
+    }
+    return;
+  }
+  database.inboxItems.unshift({id,kind:'parent_requested',delay_id:null,date_on:today(),
+    created_at:new Date().toISOString(),recipientId:studentId,requestedBy:actor.id});
 }
 
 export async function inbox(markRead=false,id=null){
