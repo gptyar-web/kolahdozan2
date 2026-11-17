@@ -1,5 +1,5 @@
-import * as live from './api.js?v=student-followup';
-import * as demo from './demo.js?v=student-followup';
+import * as live from './api.js?v=student-records';
+import * as demo from './demo.js?v=student-records';
 import { icon } from './icons.js';
 import {downloadReport,indexClassMoves,printLedger,reportDate,reportPeriod,reportRows as buildReportRows,studentClassOn} from './report.js?v=student-followup';
 import {followupRows,matchesInClass,notificationTitles} from './followup.js?v=student-followup';
@@ -10,8 +10,8 @@ const dialog=document.querySelector('#modal');
 const toast=document.querySelector('#toast');
 const roleNames={admin:'مدیر سامانه',gate:'نمایندهٔ درب مدرسه',student:'دانش‌آموز'};
 const statusNames={active:'تأخیر ثبت‌شده',pending:'در انتظار بررسی',approved:'اعتراض پذیرفته شد',rejected:'اعتراض رد شد',cancelled:'لغوشده'};
-const pageNames={dashboard:'پیشخوان',students:'دانش‌آموزان',delays:'ثبت و سوابق تأخیر',appeals:'اعتراض‌ها',myDelays:'تأخیرهای من',myAppeals:'اعتراض‌های من',reports:'گزارش و چاپ',staff:'نمایندگان درب مدرسه',followup:'پیگیری تأخیرها',inbox:'اعلان‌ها',manage:'ثبت گروهی',profile:'پروفایل من'};
-const pageIcons={dashboard:'home',students:'users',delays:'clock',appeals:'message',myDelays:'clock',myAppeals:'message',reports:'report',staff:'shield',followup:'clock',inbox:'message',manage:'upload',profile:'user'};
+const pageNames={dashboard:'پیشخوان',students:'دانش‌آموزان',records:'پرونده اطلاعاتی دانش‌آموز',delays:'ثبت و سوابق تأخیر',appeals:'اعتراض‌ها',myDelays:'تأخیرهای من',myAppeals:'اعتراض‌های من',reports:'گزارش و چاپ',staff:'نمایندگان درب مدرسه',followup:'پیگیری تأخیرها',inbox:'اعلان‌ها',manage:'ثبت گروهی',profile:'پروفایل من'};
+const pageIcons={dashboard:'home',students:'users',records:'file',delays:'clock',appeals:'message',myDelays:'clock',myAppeals:'message',reports:'report',staff:'shield',followup:'clock',inbox:'message',manage:'upload',profile:'user'};
 const state={mode:'login',page:'dashboard',data:null,photos:{},query:'',className:'',filterDate:'',reportRange:reportPeriod('all'),pageIndex:0,menu:false,modal:null,appealFilter:'all',loadId:0};
 let toastTimer;
 let refreshTimer;
@@ -34,7 +34,7 @@ const student=id=>allStudents().find(p=>p.id===id);
 const rowsFor=id=>state.data.delays.filter(row=>row.student_id===id);
 function allowed(){
   if(!canRecord()) return isStudent()?['dashboard','myDelays','myAppeals','inbox','profile']:['inbox','profile'];
-  const pages=['dashboard','students','delays','appeals','reports'];
+  const pages=['dashboard','students','records','delays','appeals','reports'];
   if(isAdmin()) pages.push('followup','staff','manage');
   if(isStudentGate()) pages.push('myDelays','myAppeals');
   return [...pages,'inbox','profile'];
@@ -121,7 +121,7 @@ function render(){
   const demoBadge=state.mode==='demo'?'<span class="badge">نسخهٔ آزمایشی</span>':'';
   const switcher=state.mode==='demo'?'<div class="nav-group"><p class="nav-label">تغییر نقش آزمایشی</p><select id="demo-role" aria-label="نقش آزمایشی">'+Object.entries(roleNames).map(([id,title])=>'<option value="'+id+'"'+hasValue(isStudentGate()?'gate':me().role,id)+'>'+e(title)+'</option>').join('')+'</select></div>':'';
   app.innerHTML='<div class="layout'+(state.menu?' menu-open':'')+'"><button id="screen-mask" type="button" data-action="menu" aria-label="بستن منو"></button><aside id="sidebar" class="sidebar'+(state.menu?' open':'')+'" aria-label="منوی سامانه">'+branding()+'<nav><div class="nav-group"><p class="nav-label">منوی اصلی</p>'+allowed().filter(x=>!['staff','manage','myDelays','myAppeals','profile'].includes(x)).map(nav).join('')+'</div><div class="nav-group"><p class="nav-label">'+(isAdmin()?'مدیریت سامانه':'حساب کاربری')+'</p>'+allowed().filter(x=>['staff','manage','myDelays','myAppeals','profile'].includes(x)).map(nav).join('')+'</div></nav>'+switcher+'<div class="sidebar-bottom"><div class="school-term">'+tile('calendar')+'<div><strong>سال تحصیلی</strong><small>'+classYear()+'</small></div></div><button class="nav-item" type="button" data-action="logout">'+icon('logout')+'خروج از حساب</button></div></aside><header class="topbar"><div class="crumb">'+button('','menu','data-action="menu" aria-label="منو" aria-controls="sidebar" aria-expanded="'+state.menu+'"','icon mobile-toggle')+'<span class="muted">پنل '+e(roleLabel())+'</span>'+icon('left')+'<span>'+e(pageLabel)+'</span></div><div class="top-actions">'+demoBadge+'<span class="top-date">'+icon('calendar')+e(showDate(today(),'long'))+'</span><span class="top-divider"></span><details class="identity"><summary aria-label="منوی حساب کاربری">'+avatar(me())+'<span class="identity-label"><strong>'+e(me().full_name)+'</strong><small>'+e(roleLabel())+'</small></span>'+icon('down')+'</summary><div class="account-menu">'+nav('profile')+'<button class="nav-item" type="button" data-action="logout">'+icon('logout')+'خروج از حساب</button></div></details></div></header><main class="main" id="main-content" tabindex="-1">'+({
-    dashboard,students,delays:()=>delays(false),appeals:()=>appeals(false),myDelays:()=>delays(true),myAppeals:()=>appeals(true),reports,staff,followup:followupPage,inbox:inboxPage,manage,profile
+    dashboard,students,records:recordsPage,delays:()=>delays(false),appeals:()=>appeals(false),myDelays:()=>delays(true),myAppeals:()=>appeals(true),reports,staff,followup:followupPage,inbox:inboxPage,manage,profile
   }[state.page]())+'</main></div>';
 }
 function headline(title,description='',actions=''){
@@ -230,6 +230,20 @@ function peopleResults(){
     const id=e(person.id);
     return '<tr><td>'+studentCell(person)+'</td><td>'+e(person.class_name)+'</td>'+(isAdmin()?'<td><span class="ltr">'+fa(person.username)+'</span></td>':'')+'<td>'+badge(fa(active(rowsFor(person.id)).length)+' تأخیر')+'</td><td><div class="form-actions">'+button('مشاهدهٔ پرونده','left','data-action="person" data-id="'+id+'"','ghost compact')+(person.id!==me().id?button('ثبت تأخیر','plus','data-action="new-delay" data-id="'+id+'"','soft compact'):'')+'</div></td></tr>';
   }).join('')||empty('دانش‌آموزی با این مشخصات پیدا نشد.',headers.length))+footer;
+}
+function recordsPage(){
+  return headline(pageNames.records,'یک دانش‌آموز را جست‌وجو کنید و پروندهٔ او را باز کنید.')+
+    '<section class="card">'+peopleFilter()+'<div id="list-results">'+recordResults()+'</div></section>';
+}
+function recordResults(){
+  const [people,footer]=paginated(filteredStudents());
+  const headers=['دانش‌آموز','کلاس',...(isAdmin()?['کد ملی']:[]),'عملیات'];
+  return table(headers,people.map(person=>'<tr><td>'+studentCell(person)+'</td><td>'+e(person.class_name)+'</td>'+
+    (isAdmin()?'<td><span class="ltr">'+fa(person.username)+'</span></td>':'')+'<td>'+recordButton(person.id)+'</td></tr>').join('')||
+    empty('دانش‌آموزی با این مشخصات پیدا نشد.',headers.length))+footer;
+}
+function recordButton(id){
+  return button('مشاهدهٔ اطلاعات','file','data-action="student-record" data-id="'+e(id)+'"','compact');
 }
 function delays(own){
   const actions=own?button('ثبت اعتراض','message','data-action="new-appeal"','primary'):
@@ -394,7 +408,7 @@ function profile(){
 }
 function updateList(){
   const result=document.querySelector('#list-results');
-  const fn={students:peopleResults,delays:()=>delayResults(false),myDelays:()=>delayResults(true),reports:reportResults,followup:followupResults}[state.page];
+  const fn={students:peopleResults,records:recordResults,delays:()=>delayResults(false),myDelays:()=>delayResults(true),reports:reportResults,followup:followupResults}[state.page];
   if(result&&fn){result.innerHTML=fn();return;}
   render();
 }
@@ -509,7 +523,41 @@ function personModal(){
       table(['درس','نوبت','نمره'],grades.map(g=>'<tr><td>'+e(g.subject)+'</td><td>'+e(g.term)+'</td><td>'+fa(g.score)+'</td></tr>').join('')||empty('هنوز نمره‌ای ثبت نشده است.',3));
   }
   const transfer=isAdmin()?button('جابه‌جایی کلاس','users','data-action="move-class" data-id="'+e(id)+'"','compact'):'';
-  return modalFrame('پروندهٔ دانش‌آموز',profileInfo+(transfer?'<div class="tabs">'+transfer+'</div>':'')+tabs+details);
+  return modalFrame('پروندهٔ دانش‌آموز',profileInfo+'<div class="tabs">'+recordButton(id)+transfer+'</div>'+tabs+details);
+}
+function recordFields(title,fields,values){
+  return '<section class="record-section"><h3>'+e(title)+'</h3><dl>'+fields.map(([key,label,ltr])=>{
+    const value=values[key];
+    const display=value?(ltr?'<bdi dir="ltr">'+e(fa(value))+'</bdi>':e(value)):'<span class="muted">ثبت نشده</span>';
+    return '<div><dt>'+e(label)+'</dt><dd>'+display+'</dd></div>';
+  }).join('')+'</dl></section>';
+}
+function studentRecordModal(){
+  const {id,record,error,editing}=state.modal;
+  const person=student(id);
+  const identity='<div class="setting-title">'+avatar(person,true)+'<div><h3>'+e(person.full_name)+'</h3></div></div>';
+  if(error) return modalFrame(pageNames.records,identity+'<p class="notice error" role="alert">'+e(error)+'</p>'+
+    '<div class="form-actions">'+button('تلاش دوباره','refresh','data-action="student-record" data-id="'+e(id)+'"')+'</div>');
+  if(!record) return modalFrame(pageNames.records,identity+'<p class="notice" role="status">در حال دریافت پرونده…</p>');
+  const values={...record.details,class_name:record.class_name,national_id:record.national_id};
+  const schoolFields=[['class_name','کلاس فعلی'],['grade','پایه'],['track','رشته'],['enrollment','وضعیت ثبت‌نام']];
+  if(!isAdmin()) return modalFrame(pageNames.records,identity+recordFields('اطلاعات تحصیلی',schoolFields,values));
+  const birthEditor=editing?'<form class="stack" data-form="birth-date"><label class="field">تاریخ تولد شمسی<input name="birth_date" dir="ltr" placeholder="۱۳۸۹/۰۶/۱۵" autocomplete="off" minlength="10" maxlength="10" value="'+e(values.birth_date??'')+'" required><small>سال/ماه/روز</small></label><div data-form-message hidden></div><div class="form-actions">'+submit('ذخیرهٔ تاریخ تولد','check')+button('انصراف','','data-action="edit-birth-date"')+'</div></form>':
+    '<div class="form-actions">'+button(values.birth_date?'ویرایش تاریخ تولد':'ثبت تاریخ تولد','calendar','data-action="edit-birth-date"','compact')+'</div>';
+  return modalFrame(pageNames.records,identity+'<div class="stack">'+
+    recordFields('مشخصات فردی',[
+      ['given_name','نام'],['family_name','نام خانوادگی'],['national_id','کد ملی',true],['student_code','کد دانش‌آموز',true],
+      ['birth_date','تاریخ تولد',true],['birth_place','محل تولد'],['birth_certificate','سریال شناسنامه']
+    ],values)+birthEditor+
+    recordFields('اطلاعات تحصیلی',[...schoolFields,['class_at_import','کلاس در فایل اکسل'],['groups','گروه‌ها'],['admin_tags','برچسب‌های اداری']],values)+
+    recordFields('اطلاعات خانواده و تماس',[
+      ['father_phone','تلفن پدر',true],['mother_phone','تلفن مادر',true],['student_phone','تلفن دانش‌آموز',true],['other_phones','سایر شماره‌ها'],
+      ['father_education','تحصیلات پدر'],['mother_education','تحصیلات مادر'],['father_job','شغل پدر'],['mother_job','شغل مادر'],
+      ['father_work','محل کار پدر'],['address','نشانی'],['postal_code','کد پستی',true]
+    ],values)+recordFields('وضعیت‌ها در فایل اکسل',[
+      ['photo_status','وضعیت تصویر'],['app_status','نصب اپلیکیشن'],['dedicated_access','دسترسی اختصاصی'],
+      ['completeness','تکمیل اطلاعات'],['source_updated_at','آخرین ویرایش'],['source_editor','ویرایش‌کننده']
+    ],values)+'</div>');
 }
 function delayChangeEditor(){
   const modal=state.modal;
@@ -571,7 +619,7 @@ function classMoveModal(){
     '<div data-form-message hidden></div><div class="form-actions">'+submit('ثبت جابه‌جایی','check')+'</div>'+previous+'</form>');
 }
 function renderModal(){
-  const methods={inboxDelay:inboxDelayModal,followupSettings:followupSettingsModal,classMove:classMoveModal,editDelay:delayChangeEditor,cancelDelay:delayChangeEditor,history:delayHistoryModal,revokeGate:revokeGateModal,reportDate:reportDateModal,delay:delayModal,appeal:appealModal,review:reviewModal,gate:gateModal,person:personModal,date:()=>modalFrame('فیلتر تاریخ گزارش',calendar(state.modal.visible,new Set([state.modal.selected])))};
+  const methods={studentRecord:studentRecordModal,inboxDelay:inboxDelayModal,followupSettings:followupSettingsModal,classMove:classMoveModal,editDelay:delayChangeEditor,cancelDelay:delayChangeEditor,history:delayHistoryModal,revokeGate:revokeGateModal,reportDate:reportDateModal,delay:delayModal,appeal:appealModal,review:reviewModal,gate:gateModal,person:personModal,date:()=>modalFrame('فیلتر تاریخ گزارش',calendar(state.modal.visible,new Set([state.modal.selected])))};
   dialog.innerHTML=methods[state.modal.type]();
 }
 
@@ -670,6 +718,20 @@ const forms={
   },
   import:importSubmit,
   photos:photosSubmit,
+  'birth-date':async(form,data)=>{
+    const modal=state.modal;
+    const date=digits(data.get('birth_date')).trim();
+    modal.saving=true;
+    try{
+      await backend().setBirthDate(modal.id,date);
+      modal.record.details.birth_date=date;
+      modal.editing=false;
+      if(state.modal===modal){
+        renderDelayAndFocus('[data-action="edit-birth-date"]');
+        notify('تاریخ تولد ذخیره شد.');
+      }
+    }finally{modal.saving=false;}
+  },
   password:async(form,data)=>{
     if(data.get('new_password')!==data.get('confirm')) throw new Error('تکرار رمز عبور با رمز جدید یکسان نیست.');
     if(new TextEncoder().encode(data.get('new_password')).length>72) throw new Error('رمز عبور جدید بیش از حد طولانی است.');
@@ -809,6 +871,14 @@ async function openDelayHistory(id){
   catch(error){modal.error=friendly(error);}
   if(state.modal===modal) renderDelayAndFocus('[data-action="close"]');
 }
+async function openStudentRecord(id){
+  if(!canRecord()||!student(id)) return;
+  openModal('studentRecord',{id});
+  const modal=state.modal;
+  try{modal.record=await backend().studentRecord(id);}
+  catch(error){modal.error=friendly(error);}
+  if(state.modal===modal) renderDelayAndFocus('[data-action="close"]');
+}
 function selectReportDate(field,value){
   const range={...state.reportRange,[field]:value};
   if(range.start&&range.end&&range.start>range.end){
@@ -827,6 +897,13 @@ const actions={
   demo:()=>enterDemo(),
   logout:leave,
   retry:start,
+  'student-record':openStudentRecord,
+  'edit-birth-date':()=>{
+    const modal=state.modal;
+    if(!isAdmin()||modal?.type!=='studentRecord'||!modal.record) return;
+    modal.editing=!modal.editing;
+    renderDelayAndFocus(modal.editing?'[name="birth_date"]':'[data-action="edit-birth-date"]');
+  },
   menu:()=>{state.menu=!state.menu;render();document.querySelector(state.menu?'#sidebar .nav-item':'.mobile-toggle')?.focus();},
   'followup-settings':()=>{if(isAdmin()) openModal('followupSettings');},
   'move-class':id=>{

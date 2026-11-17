@@ -163,6 +163,11 @@ textarea{resize:vertical}
 #modal::backdrop{background:#25233f80}
 .modal-head{padding:14px 17px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
 .modal-body{padding:16px 17px 20px}
+.record-section h3{margin-bottom:8px}
+.record-section dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:8px;margin:0}
+.record-section dl div{min-width:0;padding:8px 10px;border:1px solid var(--line);border-radius:8px}
+.record-section dt{font-size:12px;color:var(--muted);margin-bottom:3px}
+.record-section dd{margin:0;overflow-wrap:anywhere;white-space:pre-wrap}
 #toast{position:fixed;bottom:19px;left:19px;z-index:10;max-width:min(440px,90vw);pointer-events:none}
 #toast:not(:empty){background:#282451;color:white;border-radius:10px;padding:9px 13px;box-shadow:0 10px 30px #211d4a32}
 #toast.error{background:#8d3048}

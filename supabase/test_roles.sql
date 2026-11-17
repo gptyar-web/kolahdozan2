@@ -60,7 +60,21 @@ begin
   assert result->>'added' = '1', 'Grade import failed';
   assert (public.kh2_grades_for(student_id)->0->>'score')::numeric = 18.5, 'Grade lookup failed';
 
+  assert not has_table_privilege('authenticated','public.kh2_student_records','SELECT'), 'Student records are readable directly';
+  assert not has_function_privilege('anon','public.kh2_student_record(uuid)','EXECUTE'), 'Anonymous callers can read student records';
+  perform public.kh2_set_birth_date(student_id,'1389/06/15');
+  update public.kh2_student_records r set details=details||'{"grade":"آزمایش","address":"نشانی آزمایشی"}'::jsonb
+  where r.student_id=test_case.student_id;
+  result := public.kh2_student_record(student_id);
+  assert result->>'national_id'=id_1 and result->'details'->>'birth_date'='1389/06/15', 'Admin cannot see the full student record';
+
   perform set_config('request.jwt.claim.sub',gate_id::text,true);
+  result := public.kh2_student_record(student_id);
+  assert not result ? 'national_id' and result->'details'='{"grade":"آزمایش"}'::jsonb, 'Gate student record exposed private fields';
+  begin
+    perform public.kh2_set_birth_date(student_id,'1389/06/16');
+    raise exception 'A representative edited a student record';
+  exception when insufficient_privilege then assert sqlerrm='KH2_FORBIDDEN', sqlerrm; end;
   result := public.kh2_overview();
   assert result->'me'->>'username'=id_3 and result->'me'->>'role'='student', 'Representative lost access to own student profile';
   begin
@@ -177,6 +191,10 @@ begin
   assert exists(select 1 from public.kh2_people where id=gate_id and role='student' and gate_assigned_at is null), 'Revocation removed student account';
   assert (select encrypted_password from auth.users where id=gate_id) = gate_password_hash, 'Revocation changed the password';
   perform set_config('request.jwt.claim.sub',gate_id::text,true);
+  begin
+    perform public.kh2_student_record(student_id);
+    raise exception 'Revoked representative read a student record';
+  exception when insufficient_privilege then assert sqlerrm='KH2_FORBIDDEN', sqlerrm; end;
   result := public.kh2_overview();
   assert jsonb_array_length(result->'students')=1 and result->'me'->>'role'='student', 'Revocation did not restrict the representative';
   begin

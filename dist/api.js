@@ -82,6 +82,8 @@ export const saveFollowup=(period,threshold)=>rpc('save_followup',{p_period:peri
 export const moveStudent=(id,className,date,expectedClass)=>
   rpc('move_student',{p_student:id,p_class:className,p_effective:date,p_expected_class:expectedClass});
 export const gradesFor=(student)=>rpc('grades_for',{p_student:student});
+export const studentRecord=id=>rpc('student_record',{p_student:id});
+export const setBirthDate=(id,date)=>rpc('set_birth_date',{p_student:id,p_birth_date:date});
 export const act=(action,data)=>rpc('act',{p_action:action,p_data:data});
 export const updateDelay=(id,action,reason,student=null,date=null)=>
   rpc('update_delay',{p_delay:id,p_action:action,p_reason:reason,p_student:student,p_date:date});
@@ -143,6 +145,7 @@ const messages={
   KH2_INVALID_DELAY_NOTE:'یادداشت تأخیر حداکثر ۴۰۰ نویسه می‌تواند داشته باشد.',
   KH2_DUPLICATE_DELAY:'برای این دانش‌آموز در این تاریخ قبلاً تأخیر ثبت شده است.',
   KH2_INVALID_DATE:'یک تاریخ معتبر تا امروز انتخاب کنید.',
+  KH2_INVALID_BIRTH_DATE:'تاریخ تولد شمسی را به شکل ۱۳۸۹/۰۶/۱۵ وارد کنید.',
   KH2_DUPLICATE_APPEAL:'برای این تأخیر قبلاً اعتراض ثبت شده است.',
   KH2_APPEAL_UNAVAILABLE:'این اعتراض قابل بررسی نیست یا قبلاً بررسی شده است.',
   KH2_INVALID_RESPONSE:'پاسخ باید بین ۲ تا ۸۰۰ نویسه باشد.',

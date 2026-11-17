@@ -24,6 +24,7 @@ const initial={
     {id:'appeal-2',delay_id:'delay-1-0',student_id:'sample-1',recorder_id:'gate',date_on:shift(now,-1),status:'approved',reason:'زمان ورود من در دفتر نگهبانی ثبت شده است.',response:'زمان ثبت‌شده در دفتر بررسی شد.',created_at:now}
   ],
   grades:seededStudents.flatMap(person=>['ریاضی','ادبیات فارسی','زبان انگلیسی'].map((subject,index)=>({student_id:person.id,subject,term:'نوبت اول',score:17.5+index}))),
+  records:{'sample-0':{given_name:'امیرعلی',family_name:'محمدی',birth_date:'1389/06/15',grade:'دهم',track:'علوم تجربی',enrollment:'فعال'}},
   changes:[],
   classMoves:[],
   followupSettings:{period:'month',threshold:3},
@@ -55,6 +56,22 @@ export function overview(){
 export async function gradesFor(id){
   if(actor.role!=='admin') throw new Error('KH2_FORBIDDEN');
   return database.grades.filter(g=>g.student_id===id);
+}
+export async function studentRecord(id){
+  if(actor.role!=='admin'&&!actor.gate_assigned_at) throw new Error('KH2_FORBIDDEN');
+  const person=database.students.find(p=>p.id===id);
+  if(!person) throw new Error('KH2_STUDENT_MISSING');
+  const details=database.records[id]??{};
+  if(actor.role==='admin') return {class_name:person.class_name,national_id:person.username,details:{...details}};
+  const {grade,track,enrollment}=details;
+  return {class_name:person.class_name,details:{grade,track,enrollment}};
+}
+export async function setBirthDate(id,date){
+  if(actor.role!=='admin') throw new Error('KH2_FORBIDDEN');
+  if(!database.students.some(p=>p.id===id)) throw new Error('KH2_STUDENT_MISSING');
+  if(!/^(13|14)\d{2}\/(0[1-9]|1[0-2])\/(0[1-9]|[12]\d|3[01])$/.test(date)||
+    (date.slice(5,7)>'06'&&date.endsWith('/31'))) throw new Error('KH2_INVALID_BIRTH_DATE');
+  database.records[id]={...database.records[id],birth_date:date};
 }
 export const photoLinks=paths=>Promise.resolve(Object.fromEntries(paths.filter(p=>photos[p]).map(p=>[p,photos[p]])));
 export async function putPhoto(id,file){
