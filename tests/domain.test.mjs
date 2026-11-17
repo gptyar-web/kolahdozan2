@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {active,calendarDays,classYear,dayParts,importRows,matches,shift,showDate,today} from '../dist/domain.js';
+import {printLedger,reportDate,reportPeriod,reportRows} from '../dist/report.js';
 import * as demo from '../dist/demo.js';
 
 test('Persian calendar handles leap days, Tehran school-year labels, and month boundaries',()=>{
@@ -95,4 +96,47 @@ test('batch delays support both selection modes, preserve existing entries and w
   assert.ok(!(await demo.overview()).delays.some(d=>d.date_on===untouched));
   demo.selectDemoRole('student');
   await assert.rejects(demo.registerDelays([first.id],[untouched]),/KH2_FORBIDDEN/);
+});
+
+
+test('class reports respect inclusive dates and print twenty separate day/month cells per page',()=>{
+  const people=[{id:'1',full_name:'دانش‌آموز نمونه',class_name:'۷۰۱'},{id:'2',full_name:'دانش‌آموز دیگر',class_name:'۷۰۲'}];
+  const delay=(date_on,status='active')=>({student_id:'1',date_on,status});
+  const rows=reportRows(people,[delay('2026-11-16'),delay('2026-11-15','cancelled'),delay('2026-11-13','approved'),delay('2026-11-14'),delay('2026-11-12')],'2026-11-13','2026-11-16');
+  assert.deepEqual(rows.map(row=>row.dates),[['2026-11-14','2026-11-16'],[]]);
+  assert.deepEqual(reportPeriod('week','2026-11-16'),{start:'2026-11-14',end:'2026-11-16'});
+  assert.deepEqual(reportPeriod('month','2026-11-16'),{start:'2026-10-23',end:'2026-11-16'});
+  assert.equal(reportDate('2026-11-16'),'۲۵/۰۸');
+  const html=printLedger(rows,'بازهٔ نمونه','۱۴۰۵–۱۴۰۶');
+  assert.equal((html.match(/class="ledger-page"/g)||[]).length,2);
+  assert.match(html,/<td class="ledger-date">۲۳\/۰۸<\/td><td class="ledger-date">۲۵\/۰۸<\/td>/);
+  assert.equal((html.match(/class="ledger-date"/g)||[]).length,1600);
+  const ongoing=printLedger([{person:people[0],dates:Array.from({length:21},(_,i)=>shift('2026-11-16',-i))}],'همهٔ تاریخ‌ها');
+  assert.equal((ongoing.match(/class="ledger-page"/g)||[]).length,2);
+});
+
+test('an administrator can correct and cancel with audit history and revoke only representative privileges',async()=>{
+  demo.selectDemoRole('admin');
+  const {staff,students}=await demo.overview();
+  const target=students[1];
+  const date=shift(today(),-42);
+  await demo.registerDelays([target.id],[date],'نمونه');
+  const original=(await demo.overview()).delays.find(d=>d.student_id===target.id&&d.date_on===date);
+  const corrected=await demo.updateDelay(original.id,'correct','تاریخ درست شد',target.id,shift(date,-1));
+  const history=await demo.delayHistory(corrected.replacement_id);
+  assert.equal(history[0].before_entry.date_on,date);
+  assert.equal(history[0].after_entry.date_on,shift(date,-1));
+  assert.equal(history[0].changed_by_name,'مدیر دبیرستان');
+  await demo.updateDelay(corrected.replacement_id,'cancel','از گزارش حذف شد');
+  assert.ok((await demo.delayHistory(corrected.replacement_id)).some(item=>item.action==='cancel'));
+  assert.equal((await demo.overview()).delays.find(d=>d.id===original.id).status,'cancelled');
+  assert.deepEqual(await demo.registerDelays([target.id],[date]),{added:1,skipped:0});
+  const representative=staff.find(person=>person.id==='sample-7');
+  await demo.revokeGate(representative.id,representative.gate_assigned_at);
+  demo.selectDemoRole('gate');
+  const personal=await demo.overview();
+  assert.equal(personal.me.role,'student');
+  assert.equal(personal.students.length,1);
+  await assert.rejects(demo.registerDelays([target.id],[date]),/KH2_FORBIDDEN/);
+  await assert.rejects(demo.delayHistory(original.id),/KH2_FORBIDDEN/);
 });

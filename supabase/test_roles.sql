@@ -1,6 +1,7 @@
 -- Run with SQL-editor privileges. All fixture users and records are rolled back.
 begin;
 do $test$
+<<test_case>>
 declare
   admin_id uuid;
   student_id uuid;
@@ -10,6 +11,8 @@ declare
   delay_id uuid;
   gate_delay_id uuid;
   batch_date date;
+  correction_id uuid;
+  assignment_date timestamptz;
   gate_appeal_id uuid;
   gate_password_hash text;
   appeal_id uuid;
@@ -145,6 +148,53 @@ begin
   perform set_config('request.jwt.claim.sub',admin_id::text,true);
   result := public.kh2_register_delays(array[student_id,other_id],array[batch_date-2],'');
   assert (result->>'added')::integer=2, 'Administrator could not register a batch';
+  -- An administrator can amend the date or student without overwriting the original.
+  begin
+    perform public.kh2_update_delay(delay_id,'correct','تاریخ اصلاح شد',student_id,batch_date);
+    raise exception 'Correction overwrote an existing delay';
+  exception when raise_exception then assert sqlerrm='KH2_DUPLICATE_DELAY', sqlerrm; end;
+  assert exists(select 1 from public.kh2_delays where id=delay_id and cancelled_at is null), 'Failed correction cancelled the original';
+  result := public.kh2_update_delay(delay_id,'correct','دانش‌آموز اشتباه بود',other_id,batch_date-3);
+  correction_id := (result->>'replacement_id')::uuid;
+  result := public.kh2_delay_history(correction_id);
+  assert result->0->>'reason'='دانش‌آموز اشتباه بود'
+    and result->0->>'changed_by'=admin_id::text
+    and result->0->'before_entry'->>'student_id'=student_id::text
+    and result->0->'after_entry'->>'student_id'=other_id::text, 'Correction audit entries are incomplete';
+  assert exists(select 1 from public.kh2_delays where id=delay_id and cancelled_at is not null), 'Correction did not preserve original as cancelled';
+  assert exists(select 1 from public.kh2_appeals a where a.id=appeal_id and a.delay_id=test_case.delay_id), 'Another student got the original appeal';
+  perform public.kh2_update_delay(correction_id,'cancel','این ثبت لازم نبود');
+  result := public.kh2_delay_history(correction_id);
+  assert jsonb_array_length(result)=2 and exists(select 1 from jsonb_array_elements(result) a where a->>'action'='cancel'), 'Cancellation history is missing';
+  result := public.kh2_register_delays(array[other_id],array[batch_date-3],'ثبت تازه');
+  assert (result->>'added')::int=1, 'Cancelled dates cannot be registered again';
+  -- Old clients can still use the one-record API.
+  perform public.kh2_act('register_delay',jsonb_build_object('student_id',other_id,'date_on',batch_date-4));
+
+  select gate_assigned_at into strict assignment_date from public.kh2_people where id=gate_id;
+  perform public.kh2_revoke_gate(gate_id,assignment_date);
+  assert exists(select 1 from public.kh2_people where id=gate_id and role='student' and gate_assigned_at is null), 'Revocation removed student account';
+  assert (select encrypted_password from auth.users where id=gate_id) = gate_password_hash, 'Revocation changed the password';
+  perform set_config('request.jwt.claim.sub',gate_id::text,true);
+  result := public.kh2_overview();
+  assert jsonb_array_length(result->'students')=1 and result->'me'->>'role'='student', 'Revocation did not restrict the representative';
+  begin
+    perform public.kh2_register_delays(array[other_id],array[batch_date-5],'');
+    raise exception 'Revoked representative registered a delay';
+  exception when insufficient_privilege then assert sqlerrm='KH2_FORBIDDEN', sqlerrm; end;
+  begin
+    perform public.kh2_delay_history(correction_id);
+    raise exception 'Student read private correction history';
+  exception when insufficient_privilege then assert sqlerrm='KH2_FORBIDDEN', sqlerrm; end;
+  begin
+    perform public.kh2_update_delay(correction_id,'cancel','دلیل آزمایش');
+    raise exception 'Student cancelled a delay';
+  exception when insufficient_privilege then assert sqlerrm='KH2_FORBIDDEN', sqlerrm; end;
+  begin
+    perform public.kh2_revoke_gate(other_gate_id);
+    raise exception 'Student revoked someone else’s role';
+  exception when insufficient_privilege then assert sqlerrm='KH2_FORBIDDEN', sqlerrm; end;
+
   raise notice 'School portal role and data checks passed';
 end;
 $test$;

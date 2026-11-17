@@ -53,7 +53,7 @@ export function calendarDays(iso) {
   return {blanks,days,first};
 }
 export function active(delays) {
-  return delays.filter(delay=>delay.status!=='approved');
+  return delays.filter(delay=>!delay.cancelled_at&&delay.status!=='approved'&&delay.status!=='cancelled');
 }
 export function matches(student, term) {
   const haystack=normalize([student.full_name,student.class_name,student.username].join(' '));

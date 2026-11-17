@@ -1,5 +1,5 @@
 import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
-import { digits } from './domain.js';
+import { digits } from './domain.js?v=delay-management';
 
 const sessionKey='kh2-session-v1';
 let session;
@@ -78,6 +78,10 @@ function rpc(name,body={}) {
 export const overview=()=>rpc('overview');
 export const gradesFor=(student)=>rpc('grades_for',{p_student:student});
 export const act=(action,data)=>rpc('act',{p_action:action,p_data:data});
+export const updateDelay=(id,action,reason,student=null,date=null)=>
+  rpc('update_delay',{p_delay:id,p_action:action,p_reason:reason,p_student:student,p_date:date});
+export const delayHistory=id=>rpc('delay_history',{p_delay:id});
+export const revokeGate=(id,assignedDate)=>rpc('revoke_gate',{p_person:id,p_assigned_at:assignedDate??null});
 export function registerDelays(studentIds,days,note) {
   return rpc('register_delays',{p_student_ids:studentIds,p_dates:days,p_note:note});
 }
@@ -120,6 +124,11 @@ const messages={
   KH2_NO_CONFIG:'اتصال سامانه به پایگاه داده هنوز تنظیم نشده است.',
   KH2_FORBIDDEN:'این حساب به این بخش دسترسی ندارد.',
   KH2_EXPIRED:'نشست شما پایان یافته است. دوباره وارد شوید.',
+  KH2_INVALID_CHANGE_REASON:'دلیل تغییر باید ۳ تا ۴۰۰ نویسه باشد.',
+  KH2_UNCHANGED_DELAY:'تاریخ یا دانش‌آموز را تغییر دهید.',
+  KH2_DELAY_UNAVAILABLE:'این تأخیر قبلاً لغو شده یا پیدا نشد.',
+  KH2_GATE_NOT_ASSIGNED:'این دسترسی قبلاً تغییر کرده است. فهرست نمایندگان را تازه کنید.',
+  KH2_XLSX_UNAVAILABLE:'بارگیری ابزار خروجی اکسل انجام نشد. دوباره تلاش کنید.',
   KH2_INVALID_DELAY_BATCH:'یک دانش‌آموز و یک یا چند تاریخ، یا یک تاریخ و یک یا چند دانش‌آموز انتخاب کنید.',
   KH2_INVALID_DELAY_NOTE:'یادداشت تأخیر حداکثر ۴۰۰ نویسه می‌تواند داشته باشد.',
   KH2_DUPLICATE_DELAY:'برای این دانش‌آموز در این تاریخ قبلاً تأخیر ثبت شده است.',

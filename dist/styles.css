@@ -214,3 +214,30 @@ textarea{resize:vertical}
 .delay-group .calendar{width:100%;margin-top:0}
 .delay-chips{display:flex;flex-wrap:wrap;gap:5px;width:100%;max-height:120px;overflow:auto;list-style:none;margin:0;padding:3px}
 .delay-modes>.btn{white-space:normal;text-align:start}
+.report-filters{justify-content:space-between}
+.report-filters .tabs{margin:0}
+.report-summary{padding:10px 15px;color:var(--muted);font-size:12px}
+.report-date{white-space:nowrap}
+.report-date-actions{margin-top:12px}
+.audit-entry{padding:10px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.audit-entry:last-child{border-bottom:0}
+.audit-entry small{color:var(--muted)}
+.audit-entry p{margin-top:4px}
+.badge.cancelled{background:#f0eef4;color:#535169}
+@media print{
+  @page{size:A4 portrait;margin:8mm}
+  #print-area .ledger-cover{min-height:255mm;display:grid;align-content:center;justify-items:center;text-align:center;break-after:page}
+  #print-area .ledger-cover h1{font-size:29pt;line-height:1.7;margin:0 0 12mm}
+  #print-area .ledger-cover p{font-size:18pt;margin-bottom:6mm}
+  .ledger-page+.ledger-page{break-before:page}
+  #print-area .ledger{width:100%;table-layout:fixed;font-size:8.2pt;font-weight:400;border:0.65pt solid #222}
+  #print-area .ledger-name-col{width:24%}
+  #print-area .ledger th,#print-area .ledger td{border:0.55pt solid #222;padding:0.3mm;text-align:center;background:white;color:black;line-height:1.25}
+  #print-area .ledger .ledger-title{padding:1mm;font-size:8.5pt}
+  .ledger-title strong{display:block}
+  .ledger-title div{display:flex;flex-wrap:wrap;justify-content:space-around;gap:1mm;margin-top:1mm}
+  #print-area .ledger-period{height:8mm}
+  #print-area .ledger tbody tr{height:5.7mm}
+  #print-area .ledger .ledger-name{text-align:start;padding-inline:1.2mm;overflow-wrap:anywhere}
+  #print-area .ledger .ledger-date{direction:ltr;white-space:nowrap;font-size:7.3pt}
+}
