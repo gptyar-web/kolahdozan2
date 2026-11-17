@@ -9,6 +9,7 @@ declare
   other_gate_id uuid;
   delay_id uuid;
   gate_delay_id uuid;
+  batch_date date;
   gate_appeal_id uuid;
   gate_password_hash text;
   appeal_id uuid;
@@ -112,6 +113,38 @@ begin
   perform set_config('request.jwt.claim.sub',student_id::text,true);
   result := public.kh2_overview();
   assert (result->'delays'->0->>'status') = 'approved' and (result->'appeals'->0->>'response') = 'نتیجه بررسی شد', 'Review result is missing';
+
+  batch_date := test_date - 5;
+  begin
+    perform public.kh2_register_delays(array[other_id],array[batch_date],'');
+    raise exception 'A regular student registered delays';
+  exception when insufficient_privilege then assert sqlerrm='KH2_FORBIDDEN', sqlerrm; end;
+
+  perform set_config('request.jwt.claim.sub',gate_id::text,true);
+  result := public.kh2_register_delays(array[student_id],array[batch_date,batch_date-1,batch_date-1],'گروهی');
+  assert (result->>'added')::integer=2 and (result->>'skipped')::integer=0, 'One student with multiple dates failed';
+  result := public.kh2_register_delays(array[student_id,other_id],array[batch_date],'گروه دوم');
+  assert (result->>'added')::integer=1 and (result->>'skipped')::integer=1, 'One date with multiple students failed';
+  result := public.kh2_register_delays(array[student_id,other_id],array[batch_date],'تکراری');
+  assert (result->>'added')::integer=0 and (result->>'skipped')::integer=2, 'A retry inserted duplicate rows';
+  assert exists(select 1 from public.kh2_delays d where d.student_id=(select id from public.kh2_people where username=id_1) and d.date_on=batch_date and d.note='گروهی' and d.recorder_id=gate_id), 'A duplicate changed the original record';
+  begin
+    perform public.kh2_register_delays(array[student_id,gate_id],array[batch_date-2],'');
+    raise exception 'A batch included the representative’s own account';
+  exception when insufficient_privilege then assert sqlerrm='KH2_OWN_DELAY', sqlerrm; end;
+  begin
+    perform public.kh2_register_delays(array[student_id],array[batch_date-2,test_date+2],'');
+    raise exception 'A batch included a future date';
+  exception when raise_exception then assert sqlerrm='KH2_INVALID_DATE', sqlerrm; end;
+  begin
+    perform public.kh2_register_delays(array[student_id,gen_random_uuid()],array[batch_date-2],'');
+    raise exception 'A batch included an unknown student';
+  exception when raise_exception then assert sqlerrm='KH2_STUDENT_MISSING', sqlerrm; end;
+  assert not exists(select 1 from public.kh2_delays d where d.student_id=(select id from public.kh2_people where username=id_1) and d.date_on=batch_date-2), 'An invalid batch partially wrote records';
+
+  perform set_config('request.jwt.claim.sub',admin_id::text,true);
+  result := public.kh2_register_delays(array[student_id,other_id],array[batch_date-2],'');
+  assert (result->>'added')::integer=2, 'Administrator could not register a batch';
   raise notice 'School portal role and data checks passed';
 end;
 $test$;

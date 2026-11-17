@@ -78,6 +78,9 @@ function rpc(name,body={}) {
 export const overview=()=>rpc('overview');
 export const gradesFor=(student)=>rpc('grades_for',{p_student:student});
 export const act=(action,data)=>rpc('act',{p_action:action,p_data:data});
+export function registerDelays(studentIds,days,note) {
+  return rpc('register_delays',{p_student_ids:studentIds,p_dates:days,p_note:note});
+}
 
 export async function changePassword(username,previous,password) {
   const old=await request('/auth/v1/token?grant_type=password',{method:'POST',body:loginData(username,previous)});
@@ -117,6 +120,8 @@ const messages={
   KH2_NO_CONFIG:'اتصال سامانه به پایگاه داده هنوز تنظیم نشده است.',
   KH2_FORBIDDEN:'این حساب به این بخش دسترسی ندارد.',
   KH2_EXPIRED:'نشست شما پایان یافته است. دوباره وارد شوید.',
+  KH2_INVALID_DELAY_BATCH:'یک دانش‌آموز و یک یا چند تاریخ، یا یک تاریخ و یک یا چند دانش‌آموز انتخاب کنید.',
+  KH2_INVALID_DELAY_NOTE:'یادداشت تأخیر حداکثر ۴۰۰ نویسه می‌تواند داشته باشد.',
   KH2_DUPLICATE_DELAY:'برای این دانش‌آموز در این تاریخ قبلاً تأخیر ثبت شده است.',
   KH2_INVALID_DATE:'یک تاریخ معتبر تا امروز انتخاب کنید.',
   KH2_DUPLICATE_APPEAL:'برای این تأخیر قبلاً اعتراض ثبت شده است.',

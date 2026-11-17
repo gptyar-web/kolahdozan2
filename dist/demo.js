@@ -100,10 +100,8 @@ export async function act(action,data){
     return {id:person.id};
   }
   if(action==='register_delay'){
-    if(data.student_id===actor.id) throw new Error('KH2_OWN_DELAY');
-    if(!data.date_on||data.date_on>today()) throw new Error('KH2_INVALID_DATE');
-    if(database.delays.some(d=>d.student_id===data.student_id&&d.date_on===data.date_on)) throw new Error('KH2_DUPLICATE_DELAY');
-    database.delays.unshift({...data,id:crypto.randomUUID(),recorder_name:actor.full_name,recorder_id:actor.id,status:'active'});
+    const result=await registerDelays([data.student_id],[data.date_on],data.note);
+    if(!result.added) throw new Error('KH2_DUPLICATE_DELAY');
   }
   if(action==='send_appeal'){
     if(data.reason.trim().length<5) throw new Error('KH2_INVALID_REASON');
@@ -119,4 +117,27 @@ export async function act(action,data){
     Object.assign(appeal,{status:data.status,response:data.response,reviewed_at:now});
   }
   return {ok:true};
+}
+
+
+export async function registerDelays(studentIds,days,note=''){
+  if(actor.role==='student'&&!actor.gate_assigned_at) throw new Error('KH2_FORBIDDEN');
+  const people=[...new Set(studentIds)], dates=[...new Set(days)];
+  if(!people.length||!dates.length||(people.length>1&&dates.length>1)) throw new Error('KH2_INVALID_DELAY_BATCH');
+  if(dates.some(day=>!day||day<'1900-01-01'||day>today())) throw new Error('KH2_INVALID_DATE');
+  if(note.trim().length>400) throw new Error('KH2_INVALID_DELAY_NOTE');
+  if(people.includes(actor.id)) throw new Error('KH2_OWN_DELAY');
+  if(people.some(id=>!database.students.some(p=>p.id===id))) throw new Error('KH2_STUDENT_MISSING');
+  const result={added:0,skipped:0};
+  for(const student_id of people){
+    for(const date_on of dates){
+      if(database.delays.some(d=>d.student_id===student_id&&d.date_on===date_on)){
+        result.skipped++;
+        continue;
+      }
+      database.delays.unshift({student_id,date_on,note:note.trim(),id:crypto.randomUUID(),recorder_name:actor.full_name,recorder_id:actor.id,status:'active'});
+      result.added++;
+    }
+  }
+  return result;
 }

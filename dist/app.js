@@ -1,5 +1,5 @@
-import * as live from './api.js?v=student-representatives';
-import * as demo from './demo.js?v=student-representatives';
+import * as live from './api.js?v=batch-delays';
+import * as demo from './demo.js?v=batch-delays';
 import { icon } from './icons.js';
 import { active,calendarDays,classYear,dayParts,digits,escape as e,fa,importRows,matches,monthStart,school,shift,showDate,today } from './domain.js';
 
@@ -15,6 +15,7 @@ let toastTimer;
 let refreshTimer;
 let focusAfterModal;
 const limit=8;
+const delayModes={dates:'یک دانش‌آموز، چند تاریخ',students:'یک تاریخ، چند دانش‌آموز'};
 const logo=new URL('./assets/favicon.svg',import.meta.url).href;
 const art=new URL('./assets/school-clock.webp',import.meta.url).href;
 const backend=()=>state.mode==='demo'?demo:live;
@@ -301,6 +302,7 @@ function openModal(type,data={}){
 function closeModal(){
   if(dialog.open) dialog.close();
 }
+dialog.addEventListener('cancel',event=>{if(state.modal?.saving) event.preventDefault();});
 dialog.addEventListener('close',()=>{
   state.modal=null;
   if(focusAfterModal?.isConnected) focusAfterModal.focus();
@@ -308,20 +310,58 @@ dialog.addEventListener('close',()=>{
 function modalFrame(title,body){
   return '<header class="modal-head"><h2 id="modal-title">'+e(title)+'</h2>'+button('','close','data-action="close" aria-label="بستن پنجره"','icon')+'</header><div class="modal-body">'+body+'</div>';
 }
-function calendar(){
-  const {visible,selected}=state.modal;
+function calendar(visible,selected){
   const {blanks,days}=calendarDays(visible);
   const title=e(showDate(visible,'month'));
   return '<div class="calendar"><div class="calendar-head">'+button('','right','data-action="month-prev" aria-label="ماه قبل"','icon compact')+'<strong>'+title+'</strong>'+
-    button('','left','data-action="month-next" aria-label="ماه بعد"'+(monthStart(visible)>=monthStart(today())?' disabled':''),'icon compact')+'</div><div class="calendar-grid">'+['ش','ی','د','س','چ','پ','ج'].map(c=>'<small aria-hidden="true">'+c+'</small>').join('')+'<span></span>'.repeat(blanks)+days.map(day=>'<button type="button" data-action="pick-day" data-id="'+day+'" aria-label="'+e(showDate(day,'long'))+'" aria-pressed="'+(selected===day)+'"'+(day>today()?' disabled':'')+'>'+fa(dayParts(day).day)+'</button>').join('')+'</div></div>';
+    button('','left','data-action="month-next" aria-label="ماه بعد"'+(monthStart(visible)>=monthStart(today())?' disabled':''),'icon compact')+'</div><div class="calendar-grid">'+['ش','ی','د','س','چ','پ','ج'].map(c=>'<small aria-hidden="true">'+c+'</small>').join('')+'<span></span>'.repeat(blanks)+days.map(day=>'<button type="button" data-action="pick-day" data-id="'+day+'" aria-label="'+e(showDate(day,'long'))+'" aria-pressed="'+selected.has(day)+'"'+(day>today()?' disabled':'')+'>'+fa(dayParts(day).day)+'</button>').join('')+'</div></div>';
+}
+function delaySelection(){
+  return state.modal.selections[state.modal.mode];
+}
+function delayPeopleOptions(selection){
+  const choices=allStudents().filter(person=>person.id!==me().id&&matches(person,selection.query)).slice(0,10);
+  return choices.map(person=>{
+    const chosen=selection.people.has(person.id);
+    return button(person.full_name+' · '+person.class_name,chosen?'check':'user',
+      'data-action="select-delay-person" data-id="'+e(person.id)+'" aria-pressed="'+chosen+'"',chosen?'compact soft':'compact');
+  }).join('')||'<span class="muted">دانش‌آموزی پیدا نشد.</span>';
+}
+function delayPeople(selection,multiple){
+  const people=[...selection.people].map(student).filter(Boolean);
+  if(!multiple&&people.length){
+    const person=people[0];
+    return '<section class="delay-group"><h3>دانش‌آموز</h3><div class="form-actions">'+avatar(person)+'<strong>'+e(person.full_name)+'</strong><span class="muted">'+e(person.class_name)+'</span>'+button('تغییر دانش‌آموز','users','data-action="clear-delay-person"','compact')+'</div></section>';
+  }
+  const chosen=people.length?'<ul class="delay-chips" aria-label="دانش‌آموزان انتخاب‌شده">'+people.map(person=>
+    '<li>'+button(person.full_name,'close','data-action="remove-delay-person" data-id="'+e(person.id)+'" aria-label="'+e('حذف '+person.full_name)+'"','compact soft')+'</li>').join('')+'</ul>':'';
+  const label=multiple?'دانش‌آموزان':'دانش‌آموز';
+  return '<section class="delay-group"><label class="field">'+label+'<input type="search" id="delay-people-search" placeholder="نام یا کلاس را بنویسید" value="'+e(selection.query)+'"></label>'+chosen+
+    '<div id="delay-person-results" class="person-options">'+delayPeopleOptions(selection)+'</div></section>';
+}
+function delayDates(selection,multiple){
+  const days=[...selection.dates].sort();
+  const chosen=multiple&&days.length?'<ul class="delay-chips" aria-label="تاریخ‌های انتخاب‌شده">'+days.map(day=>
+    '<li>'+button(showDate(day),'close','data-action="remove-delay-day" data-id="'+day+'" aria-label="'+e('حذف '+showDate(day,'long'))+'"','compact soft')+'</li>').join('')+'</ul>':'';
+  const label=multiple?'تاریخ‌های تأخیر':'تاریخ تأخیر';
+  const calendarLabel=multiple?(selection.calendar?'بستن تقویم':'باز کردن تقویم'):(days.length?showDate(days[0],'long'):'انتخاب تاریخ');
+  return '<section class="delay-group"><h3>'+label+'</h3>'+chosen+
+    button(calendarLabel,'calendar','data-action="toggle-calendar" aria-expanded="'+selection.calendar+'"','compact')+
+    (selection.calendar?calendar(selection.visible,selection.dates):'')+'</section>';
 }
 function delayModal(){
   const m=state.modal;
-  const selected=student(m.studentId);
-  const options=allStudents().filter(person=>person.id!==me().id&&matches(person,m.query??'')).slice(0,10);
-  const people=selected?'<div class="form-actions">'+avatar(selected)+'<strong>'+e(selected.full_name)+'</strong><span class="muted">'+e(selected.class_name)+'</span>'+button('تغییر دانش‌آموز','users','data-action="clear-person"','compact')+'</div>':
-    '<label class="field">دانش‌آموز<input type="search" id="delay-people-search" placeholder="نام یا کلاس را بنویسید" value="'+e(m.query??'')+'"></label><div id="delay-person-results" class="person-options">'+options.map(person=>button(person.full_name+' · '+person.class_name,'user','data-action="select-person" data-id="'+e(person.id)+'"','compact')).join('')+(options.length?'':'<span class="muted">دانش‌آموزی پیدا نشد.</span>')+'</div>';
-  return modalFrame('ثبت تأخیر جدید','<form data-form="delay" class="stack">'+people+'<div><div class="field">تاریخ تأخیر</div>'+button(m.selected?showDate(m.selected,'long'):'انتخاب تاریخ','calendar','data-action="toggle-calendar" aria-expanded="'+m.calendar+'"')+(m.calendar?calendar():'')+'</div><label class="field">یادداشت (اختیاری)<textarea name="note" rows="2" maxlength="400">'+e(m.note??'')+'</textarea></label><div data-form-message hidden></div><div class="form-actions">'+submit('ثبت تأخیر','check')+'</div></form>');
+  const selection=delaySelection();
+  const multipleDates=m.mode==='dates';
+  const modes='<div class="tabs delay-modes" role="group" aria-label="روش ثبت تأخیر">'+Object.entries(delayModes).map(([mode,label])=>
+    button(label,mode==='dates'?'calendar':'users','data-action="delay-mode" data-id="'+mode+'" aria-pressed="'+(m.mode===mode)+'"','compact')).join('')+'</div>';
+  const people=delayPeople(selection,!multipleDates);
+  const dates=delayDates(selection,multipleDates);
+  const count=Math.max(selection.people.size,selection.dates.size);
+  const label=count>1?'ثبت '+fa(count)+' تأخیر':'ثبت تأخیر';
+  return modalFrame('ثبت تأخیر جدید',modes+'<form data-form="delay"><fieldset class="stack delay-fields">'+(multipleDates?people+dates:dates+people)+
+    '<label class="field">یادداشت (اختیاری)<textarea name="note" rows="2" maxlength="400">'+e(selection.note)+'</textarea></label>'+
+    '<div data-form-message hidden></div><div class="form-actions">'+submit(label,'check')+'</div></fieldset></form>');
 }
 function appealModal(){
   const items=rowsFor(me().id).filter(d=>d.status==='active');
@@ -356,7 +396,7 @@ function personModal(){
   return modalFrame('پروندهٔ دانش‌آموز',profileInfo+tabs+details);
 }
 function renderModal(){
-  const methods={delay:delayModal,appeal:appealModal,review:reviewModal,gate:gateModal,person:personModal,date:()=>modalFrame('فیلتر تاریخ گزارش',calendar())};
+  const methods={delay:delayModal,appeal:appealModal,review:reviewModal,gate:gateModal,person:personModal,date:()=>modalFrame('فیلتر تاریخ گزارش',calendar(state.modal.visible,new Set([state.modal.selected])))};
   dialog.innerHTML=methods[state.modal.type]();
 }
 
@@ -452,10 +492,24 @@ const forms={
     feedback(form,'رمز عبور تغییر کرد.','ok');
   },
   delay:async(form,data)=>{
-    const m=state.modal;
-    if(!m.studentId) throw new Error('ابتدا دانش‌آموز را انتخاب کنید.');
-    if(!m.selected) throw new Error('تاریخ تأخیر را از تقویم انتخاب کنید.');
-    await writeModal('register_delay',{student_id:m.studentId,date_on:m.selected,note:data.get('note')},'تأخیر دانش‌آموز ثبت شد.');
+    const modal=state.modal;
+    const {people,dates}=delaySelection();
+    if(!people.size) throw new Error('حداقل یک دانش‌آموز را انتخاب کنید.');
+    if(!dates.size) throw new Error('حداقل یک تاریخ از تقویم انتخاب کنید.');
+    const fields=form.querySelector('fieldset');
+    fields.disabled=true;
+    modal.saving=true;
+    try {
+      const {added,skipped}=await backend().registerDelays([...people],[...dates],data.get('note'));
+      if(state.modal===modal) closeModal();
+      const result=fa(added)+' تأخیر ثبت شد.'+(skipped?' '+fa(skipped)+' مورد قبلاً ثبت شده بود.':'');
+      notify(result);
+      try {await reload();}
+      catch(error){notify(result+' '+friendly(error),'error');}
+    } finally {
+      fields.disabled=false;
+      modal.saving=false;
+    }
   },
   appeal:(form,data)=>writeModal('send_appeal',Object.fromEntries(data),'اعتراض شما ارسال شد.'),
   review:(form,data)=>writeModal('review_appeal',{...Object.fromEntries(data),appeal_id:state.modal.id},'نتیجهٔ اعتراض ثبت شد.'),
@@ -500,8 +554,9 @@ function leave(){
   document.querySelector('#print-area').replaceChildren();login();
 }
 function changeModalDate(offset){
-  const first=monthStart(state.modal.visible);
-  state.modal.visible=offset<0?shift(first,-1):shift(first,calendarDays(first).days.length);
+  const selection=state.modal.type==='delay'?delaySelection():state.modal;
+  const first=monthStart(selection.visible);
+  selection.visible=offset<0?shift(first,-1):shift(first,calendarDays(first).days.length);
   renderModal();
   dialog.querySelector('[data-action="month-'+(offset<0?'prev':'next')+'"]:not(:disabled),[data-action="pick-day"]:not(:disabled)')?.focus();
 }
@@ -518,6 +573,18 @@ async function selectPersonTab(tab){
     renderModal();dialog.querySelector('[data-id="grades"]')?.focus();
   }
 }
+function openDelay(studentId){
+  const selection=()=>({people:new Set(studentId?[studentId]:[]),dates:new Set(),visible:today(),calendar:true,query:'',note:''});
+  openModal('delay',{mode:'dates',selections:{dates:selection(),students:selection()}});
+}
+function toggleSelection(set,value){
+  if(set.has(value)) set.delete(value);
+  else set.add(value);
+}
+function renderDelayAndFocus(selector){
+  renderModal();
+  dialog.querySelector(selector)?.focus();
+}
 const actions={
   demo:()=>enterDemo(),
   logout:leave,
@@ -528,7 +595,7 @@ const actions={
   next:()=>{state.pageIndex++;updateList();document.querySelector('#list-results .paging button:last-child:not(:disabled), #list-results .paging button:first-child:not(:disabled)')?.focus();},
   'filter-date':()=>openModal('date',{visible:state.filterDate||today(),selected:state.filterDate}),
   'reset-date':()=>{state.filterDate='';state.pageIndex=0;render();},
-  'new-delay':id=>openModal('delay',{studentId:id,visible:today(),selected:'',calendar:true}),
+  'new-delay':openDelay,
   'new-appeal':id=>openModal('appeal',{delayId:id}),
   'add-gate':()=>openModal('gate'),
   'gate-reset':()=>{state.modal.studentId=null;renderModal();dialog.querySelector('[name=national_id]')?.focus();},
@@ -537,21 +604,52 @@ const actions={
   person:id=>openModal('person',{id,tab:'delays'}),
   review:id=>openModal('review',{id}),
   close:closeModal,
+  'delay-mode':mode=>{
+    state.modal.mode=mode;
+    renderDelayAndFocus('[data-action="delay-mode"][aria-pressed="true"]');
+  },
   'toggle-calendar':()=>{
-    state.modal.calendar=!state.modal.calendar;renderModal();dialog.querySelector('[data-action="toggle-calendar"]')?.focus();
+    const selection=delaySelection();
+    selection.calendar=!selection.calendar;
+    renderDelayAndFocus('[data-action="toggle-calendar"]');
   },
   'month-prev':()=>changeModalDate(-1),
   'month-next':()=>changeModalDate(1),
   'pick-day':id=>{
     if(state.modal.type==='date'){state.filterDate=id;state.pageIndex=0;closeModal();render();document.querySelector('[data-action="filter-date"]')?.focus();return;}
-    state.modal.selected=id;state.modal.calendar=false;renderModal();dialog.querySelector('[data-action="toggle-calendar"]')?.focus();
+    const selection=delaySelection();
+    if(state.modal.mode==='dates'){
+      toggleSelection(selection.dates,id);
+      renderDelayAndFocus('[data-action="pick-day"][data-id="'+id+'"]');
+    }else{
+      selection.dates=new Set([id]);
+      selection.calendar=false;
+      renderDelayAndFocus('#delay-people-search');
+    }
   },
-  'clear-person':()=>{state.modal.studentId='';state.modal.query='';renderModal();dialog.querySelector('#delay-people-search')?.focus();},
-  'select-person':id=>{state.modal.studentId=id;renderModal();dialog.querySelector('[data-action="toggle-calendar"]')?.focus();}
+  'remove-delay-day':id=>{delaySelection().dates.delete(id);renderDelayAndFocus('[data-action="toggle-calendar"]');},
+  'clear-delay-person':()=>{
+    const selection=delaySelection();
+    selection.people.clear();
+    selection.query='';
+    renderDelayAndFocus('#delay-people-search');
+  },
+  'remove-delay-person':id=>{delaySelection().people.delete(id);renderDelayAndFocus('#delay-people-search');},
+  'select-delay-person':id=>{
+    const selection=delaySelection();
+    if(state.modal.mode==='students'){
+      toggleSelection(selection.people,id);
+      renderDelayAndFocus('[data-action="select-delay-person"][data-id="'+CSS.escape(id)+'"]');
+    }else{
+      selection.people=new Set([id]);
+      renderDelayAndFocus('[data-action="toggle-calendar"]');
+    }
+  }
+
 };
 document.addEventListener('click',async event=>{
   const control=event.target.closest('button');
-  if(!control||control.disabled) return;
+  if(!control||control.disabled||(state.modal?.saving&&dialog.contains(control))) return;
   if(control.dataset.page){setPage(control.dataset.page);return;}
   const run=actions[control.dataset.action];
   if(!run) return;
@@ -562,10 +660,10 @@ document.addEventListener('input',event=>{
   if(event.target.id==='search-people'){
     state.query=event.target.value;state.pageIndex=0;updateList();
   }else if(event.target.id==='delay-people-search'){
-    state.modal.query=event.target.value;
-    const options=allStudents().filter(p=>p.id!==me().id&&matches(p,state.modal.query)).slice(0,10);
-    dialog.querySelector('#delay-person-results').innerHTML=options.map(p=>button(p.full_name+' · '+p.class_name,'user','data-action="select-person" data-id="'+e(p.id)+'"','compact')).join('')||(state.modal.query?'<span class="muted">دانش‌آموزی پیدا نشد.</span>':'');
-  }else if(event.target.name==='note'&&state.modal?.type==='delay') state.modal.note=event.target.value;
+    const selection=delaySelection();
+    selection.query=event.target.value;
+    dialog.querySelector('#delay-person-results').innerHTML=delayPeopleOptions(selection);
+  }else if(event.target.name==='note'&&state.modal?.type==='delay') delaySelection().note=event.target.value;
 });
 document.addEventListener('change',async event=>{
   if(event.target.id==='class-filter'){state.className=event.target.value;state.pageIndex=0;updateList();}

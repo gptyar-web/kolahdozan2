@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {active,calendarDays,classYear,dayParts,importRows,matches,showDate,today} from '../dist/domain.js';
+import {active,calendarDays,classYear,dayParts,importRows,matches,shift,showDate,today} from '../dist/domain.js';
 import * as demo from '../dist/demo.js';
 
 test('Persian calendar handles leap days, Tehran school-year labels, and month boundaries',()=>{
@@ -73,4 +73,26 @@ test('demo administrator can import students, assign grades and photos, and crea
   await assert.rejects(demo.changePassword(me.username,'wrong','NewPassword12'),/invalid_credentials/);
   await demo.changePassword(me.username,me.username,'NewPassword12');
   await demo.changePassword(me.username,'NewPassword12','AnotherPassword12');
+});
+
+
+test('batch delays support both selection modes, preserve existing entries and write atomically on invalid input',async()=>{
+  demo.selectDemoRole('gate');
+  const view=await demo.overview();
+  const [first,second]=view.students.filter(person=>person.id!==view.me.id);
+  const day=shift(today(),-23);
+  const earlier=shift(day,-1);
+  const untouched=shift(day,-2);
+  assert.deepEqual(await demo.registerDelays([first.id],[day,earlier],'اصل'),{added:2,skipped:0});
+  assert.deepEqual(await demo.registerDelays([first.id,second.id],[day],'دوم'),{added:1,skipped:1});
+  assert.deepEqual(await demo.registerDelays([first.id,second.id],[day],'تکراری'),{added:0,skipped:2});
+  const result=await demo.overview();
+  assert.equal(result.delays.find(d=>d.student_id===first.id&&d.date_on===day).note,'اصل');
+  assert.ok(result.delays.some(d=>d.student_id===second.id&&d.date_on===day&&d.recorder_id===view.me.id));
+  await assert.rejects(demo.registerDelays([first.id,view.me.id],[untouched]),/KH2_OWN_DELAY/);
+  await assert.rejects(demo.registerDelays([first.id],[untouched,shift(today(),1)]),/KH2_INVALID_DATE/);
+  await assert.rejects(demo.registerDelays([first.id,second.id],[day,earlier]),/KH2_INVALID_DELAY_BATCH/);
+  assert.ok(!(await demo.overview()).delays.some(d=>d.date_on===untouched));
+  demo.selectDemoRole('student');
+  await assert.rejects(demo.registerDelays([first.id],[untouched]),/KH2_FORBIDDEN/);
 });
