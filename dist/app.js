@@ -1,7 +1,7 @@
 import * as live from './api.js?v=delay-management';
 import * as demo from './demo.js?v=delay-management';
 import { icon } from './icons.js';
-import {downloadReport,printLedger,reportDate,reportPeriod,reportRows as buildReportRows} from './report.js?v=delay-management';
+import {downloadReport,printLedger,reportDate,reportPeriod,reportRows as buildReportRows} from './report.js?v=print-month-day';
 import { active,calendarDays,classYear,dayParts,digits,escape as e,fa,importRows,matches,monthStart,school,shift,showDate,today } from './domain.js?v=delay-management';
 
 const app=document.querySelector('#app');

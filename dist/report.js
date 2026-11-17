@@ -12,9 +12,9 @@ export function reportPeriod(mode,day=today()){
   return mode==='month'?{start:monthStart(day),end:day}:{start:'',end:''};
 }
 
-export function reportDate(iso){
+export function reportDate(iso,{monthFirst=false}={}){
   const {day,month}=dayParts(iso);
-  return fa([day,month].map(value=>String(value).padStart(2,'0')).join('/'));
+  return fa((monthFirst?[month,day]:[day,month]).map(value=>String(value).padStart(2,'0')).join('/'));
 }
 
 export function reportRows(people,delays,start='',end=''){
@@ -48,13 +48,13 @@ function printClass(title,rows,period,year){
       const entries=Array.from({length:rowsPerPage},(_,i)=>{
         const row=pageRows[i];
         return '<tr><td class="ledger-name">'+e(row?.person.full_name)+'</td>'+
-          Array.from({length:dateColumns},(_,j)=>'<td class="ledger-date">'+(row?.dates[col+j]?reportDate(row.dates[col+j]):'')+'</td>').join('')+'</tr>';
+          Array.from({length:dateColumns},(_,j)=>'<td class="ledger-date" dir="ltr">'+(row?.dates[col+j]?reportDate(row.dates[col+j],{monthFirst:true}):'')+'</td>').join('')+'</tr>';
       }).join('');
       sheets.push('<section class="ledger-page"><table class="ledger"><colgroup><col class="ledger-name-col"><col span="'+dateColumns+'"></colgroup><thead>'+
         '<tr><th colspan="21" class="ledger-title"><strong>باسمه تعالی</strong><div><span>دفتر ثبت تأخیر دانش‌آموزان</span><span>'+e(school)+'</span><span>سال تحصیلی '+e(year)+'</span><span>کلاس '+e(fa(title))+'</span></div></th></tr>'+
         '<tr><th scope="row">جلسات</th>'+headerCells+'</tr>'+
         '<tr class="ledger-period"><th scope="row">تاریخ</th><td colspan="20">'+e(period)+'</td></tr>'+
-        '<tr><th scope="col">نام و نام خانوادگی</th><th colspan="20" scope="colgroup">روز / ماه</th></tr></thead><tbody>'+entries+'</tbody></table></section>');
+        '<tr><th scope="col">نام و نام خانوادگی</th><th colspan="20" scope="colgroup">ماه / روز</th></tr></thead><tbody>'+entries+'</tbody></table></section>');
     }
   }
   return sheets.join('');

@@ -99,7 +99,7 @@ test('batch delays support both selection modes, preserve existing entries and w
 });
 
 
-test('class reports respect inclusive dates and print twenty separate day/month cells per page',()=>{
+test('class reports respect inclusive dates and print twenty separate month/day cells per page',()=>{
   const people=[{id:'1',full_name:'دانش‌آموز نمونه',class_name:'۷۰۱'},{id:'2',full_name:'دانش‌آموز دیگر',class_name:'۷۰۲'}];
   const delay=(date_on,status='active')=>({student_id:'1',date_on,status});
   const rows=reportRows(people,[delay('2026-11-16'),delay('2026-11-15','cancelled'),delay('2026-11-13','approved'),delay('2026-11-14'),delay('2026-11-12')],'2026-11-13','2026-11-16');
@@ -107,9 +107,10 @@ test('class reports respect inclusive dates and print twenty separate day/month 
   assert.deepEqual(reportPeriod('week','2026-11-16'),{start:'2026-11-14',end:'2026-11-16'});
   assert.deepEqual(reportPeriod('month','2026-11-16'),{start:'2026-10-23',end:'2026-11-16'});
   assert.equal(reportDate('2026-11-16'),'۲۵/۰۸');
+  assert.equal(reportDate('2026-10-18',{monthFirst:true}),'۰۷/۲۶');
   const html=printLedger(rows,'بازهٔ نمونه','۱۴۰۵–۱۴۰۶');
   assert.equal((html.match(/class="ledger-page"/g)||[]).length,2);
-  assert.match(html,/<td class="ledger-date">۲۳\/۰۸<\/td><td class="ledger-date">۲۵\/۰۸<\/td>/);
+  assert.match(html,/<td class="ledger-date" dir="ltr">۰۸\/۲۳<\/td><td class="ledger-date" dir="ltr">۰۸\/۲۵<\/td>/);
   assert.equal((html.match(/class="ledger-date"/g)||[]).length,1600);
   const ongoing=printLedger([{person:people[0],dates:Array.from({length:21},(_,i)=>shift('2026-11-16',-i))}],'همهٔ تاریخ‌ها');
   assert.equal((ongoing.match(/class="ledger-page"/g)||[]).length,2);
