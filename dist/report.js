@@ -17,14 +17,47 @@ export function reportDate(iso,{monthFirst=false}={}){
   return fa((monthFirst?[month,day]:[day,month]).map(value=>String(value).padStart(2,'0')).join('/'));
 }
 
-export function reportRows(people,delays,start='',end=''){
+export function indexClassMoves(moves){
+  const byStudent=new Map();
+  for(const move of moves){
+    if(!byStudent.has(move.student_id)) byStudent.set(move.student_id,[]);
+    byStudent.get(move.student_id).push(move);
+  }
+  for(const moves of byStudent.values()) moves.sort((a,b)=>a.effective_on.localeCompare(b.effective_on));
+  return byStudent;
+}
+
+export function studentClassOn(person,date,moves=[]){
+  const change=moves.find(move=>move.effective_on>date);
+  return change?.previous_class??moves.at(-1)?.new_class??person.class_name;
+}
+
+function reportClasses(person,moves,start,end){
+  if(!start&&!end) return [person.class_name];
+  const from=start||'1900-01-01';
+  const to=end||today();
+  return [studentClassOn(person,from,moves),...moves.filter(m=>m.effective_on>from&&m.effective_on<=to).map(m=>m.new_class)];
+}
+
+export function reportRows(people,delays,start='',end='',options={}){
+  const {classMoves=new Map(),include=()=>true}=options;
   const byStudent=new Map();
   for(const delay of active(delays)){
     if((start&&delay.date_on<start)||(end&&delay.date_on>end)) continue;
     if(!byStudent.has(delay.student_id)) byStudent.set(delay.student_id,[]);
     byStudent.get(delay.student_id).push(delay.date_on);
   }
-  return people.map(person=>({person,dates:(byStudent.get(person.id)??[]).sort()}));
+  return people.flatMap(person=>{
+    const history=classMoves.get(person.id)??[];
+    const groups=new Map(reportClasses(person,history,start,end).map(name=>[name,[]]));
+    for(const date of byStudent.get(person.id)??[]){
+      const name=studentClassOn(person,date,history);
+      if(!groups.has(name)) groups.set(name,[]);
+      groups.get(name).push(date);
+    }
+    return [...groups].filter(([name])=>include(person,name))
+      .map(([name,dates])=>({person:{...person,class_name:name},dates:dates.sort()}));
+  });
 }
 
 function classes(rows){

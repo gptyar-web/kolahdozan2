@@ -25,6 +25,9 @@ const initial={
   ],
   grades:seededStudents.flatMap(person=>['ریاضی','ادبیات فارسی','زبان انگلیسی'].map((subject,index)=>({student_id:person.id,subject,term:'نوبت اول',score:17.5+index}))),
   changes:[],
+  classMoves:[],
+  followupSettings:{period:'month',threshold:3},
+  inboxItems:[],
   passwords:{}
 };
 let database=structuredClone(initial);
@@ -112,12 +115,16 @@ export async function act(action,data){
     const delay=database.delays.find(d=>d.id===data.delay_id&&d.student_id===actor.id&&!d.cancelled_at);
     if(!delay) throw new Error('KH2_FORBIDDEN');
     database.appeals.unshift({...data,id:crypto.randomUUID(),student_id:actor.id,recorder_id:delay.recorder_id,date_on:delay.date_on,status:'pending',created_at:now});
+    const recorder=database.students.find(person=>person.id===delay.recorder_id&&person.gate_assigned_at);
+    addNotification(recorder?.id??admin.id,delay,'appeal_added');
   }
   if(action==='review_appeal'){
     if(data.response.trim().length<2) throw new Error('KH2_INVALID_RESPONSE');
     const appeal=database.appeals.find(a=>a.id===data.appeal_id&&a.status==='pending'&&!database.delays.find(d=>d.id===a.delay_id)?.cancelled_at&&(actor.role==='admin'||(a.recorder_id===actor.id&&a.student_id!==actor.id)));
     if(!appeal) throw new Error('KH2_APPEAL_UNAVAILABLE');
     Object.assign(appeal,{status:data.status,response:data.response,reviewed_at:now});
+    const delay=database.delays.find(record=>record.id===appeal.delay_id);
+    addNotification(delay.student_id,delay,data.status==='approved'?'appeal_approved':'appeal_rejected');
   }
   return {ok:true};
 }
@@ -139,6 +146,7 @@ export async function registerDelays(studentIds,days,note=''){
         continue;
       }
       database.delays.unshift({student_id,date_on,note:note.trim(),id:crypto.randomUUID(),recorder_name:actor.full_name,recorder_id:actor.id,status:'active'});
+      addNotification(student_id,database.delays[0],'delay_added');
       result.added++;
     }
   }
@@ -183,4 +191,45 @@ export async function revokeGate(id,assignedDate){
   if(!person) throw new Error('KH2_GATE_NOT_ASSIGNED');
   person.gate_assigned_at=null;
   return {ok:true};
+}
+
+function addNotification(recipientId,delay,kind){
+  database.inboxItems.unshift({id:crypto.randomUUID(),kind,delay_id:delay.id,date_on:delay.date_on,created_at:new Date().toISOString(),recipientId});
+}
+
+export async function inbox(markRead=false,id=null){
+  const items=database.inboxItems.filter(item=>item.recipientId===actor.id&&(
+    item.kind!=='appeal_added'||actor.role==='admin'||actor.gate_assigned_at));
+  if(markRead||id){
+    for(const item of items) if(!item.read_at&&(markRead||item.id===id)) item.read_at=new Date().toISOString();
+  }
+  return {unread:items.filter(item=>!item.read_at).length,items:items.slice(0,50)};
+}
+
+export async function followup(){
+  return {
+    overview:await overview(),
+    settings:actor.role==='admin'?database.followupSettings:null,
+    class_moves:database.classMoves.filter(move=>actor.role==='admin'||actor.gate_assigned_at||move.student_id===actor.id)
+  };
+}
+
+export async function saveFollowup(period,threshold){
+  if(actor.role!=='admin') throw new Error('KH2_FORBIDDEN');
+  if(!['week','month'].includes(period)||!Number.isInteger(threshold)||threshold<1||threshold>31) throw new Error('KH2_INVALID_FOLLOWUP');
+  database.followupSettings={period,threshold};
+}
+
+export async function moveStudent(id,className,date,expectedClass){
+  if(actor.role!=='admin') throw new Error('KH2_FORBIDDEN');
+  const person=database.students.find(p=>p.id===id);
+  if(!person) throw new Error('KH2_STUDENT_MISSING');
+  const next=className.trim();
+  if(!next||next.length>80) throw new Error('KH2_INVALID_CLASS');
+  if(!date||date<'1900-01-01'||date>today()) throw new Error('KH2_INVALID_DATE');
+  if(person.class_name!==expectedClass) throw new Error('KH2_CLASS_CHANGED');
+  if(person.class_name===next) throw new Error('KH2_UNCHANGED_CLASS');
+  if(database.classMoves.some(move=>move.student_id===id&&move.effective_on>=date)) throw new Error('KH2_CLASS_MOVE_ORDER');
+  database.classMoves.push({student_id:id,effective_on:date,previous_class:person.class_name,new_class:next});
+  person.class_name=next;
 }

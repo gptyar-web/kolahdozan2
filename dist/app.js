@@ -1,7 +1,8 @@
-import * as live from './api.js?v=delay-management';
-import * as demo from './demo.js?v=delay-management';
+import * as live from './api.js?v=student-followup';
+import * as demo from './demo.js?v=student-followup';
 import { icon } from './icons.js';
-import {downloadReport,printLedger,reportDate,reportPeriod,reportRows as buildReportRows} from './report.js?v=print-month-day';
+import {downloadReport,indexClassMoves,printLedger,reportDate,reportPeriod,reportRows as buildReportRows,studentClassOn} from './report.js?v=student-followup';
+import {followupRows,matchesInClass,notificationTitles} from './followup.js?v=student-followup';
 import { active,calendarDays,classYear,dayParts,digits,escape as e,fa,importRows,matches,monthStart,school,shift,showDate,today } from './domain.js?v=delay-management';
 
 const app=document.querySelector('#app');
@@ -9,12 +10,13 @@ const dialog=document.querySelector('#modal');
 const toast=document.querySelector('#toast');
 const roleNames={admin:'مدیر سامانه',gate:'نمایندهٔ درب مدرسه',student:'دانش‌آموز'};
 const statusNames={active:'تأخیر ثبت‌شده',pending:'در انتظار بررسی',approved:'اعتراض پذیرفته شد',rejected:'اعتراض رد شد',cancelled:'لغوشده'};
-const pageNames={dashboard:'پیشخوان',students:'دانش‌آموزان',delays:'ثبت و سوابق تأخیر',appeals:'اعتراض‌ها',myDelays:'تأخیرهای من',myAppeals:'اعتراض‌های من',reports:'گزارش و چاپ',staff:'نمایندگان درب مدرسه',manage:'ثبت گروهی',profile:'پروفایل من'};
-const pageIcons={dashboard:'home',students:'users',delays:'clock',appeals:'message',myDelays:'clock',myAppeals:'message',reports:'report',staff:'shield',manage:'upload',profile:'user'};
+const pageNames={dashboard:'پیشخوان',students:'دانش‌آموزان',delays:'ثبت و سوابق تأخیر',appeals:'اعتراض‌ها',myDelays:'تأخیرهای من',myAppeals:'اعتراض‌های من',reports:'گزارش و چاپ',staff:'نمایندگان درب مدرسه',followup:'پیگیری تأخیرها',inbox:'اعلان‌ها',manage:'ثبت گروهی',profile:'پروفایل من'};
+const pageIcons={dashboard:'home',students:'users',delays:'clock',appeals:'message',myDelays:'clock',myAppeals:'message',reports:'report',staff:'shield',followup:'clock',inbox:'message',manage:'upload',profile:'user'};
 const state={mode:'login',page:'dashboard',data:null,photos:{},query:'',className:'',filterDate:'',reportRange:reportPeriod('all'),pageIndex:0,menu:false,modal:null,appealFilter:'all',loadId:0};
 let toastTimer;
 let refreshTimer;
 let focusAfterModal;
+let inboxSequence=0;
 const limit=8;
 const delayModes={dates:'یک دانش‌آموز، چند تاریخ',students:'یک تاریخ، چند دانش‌آموز'};
 const logo=new URL('./assets/favicon.svg',import.meta.url).href;
@@ -31,11 +33,11 @@ const allStudents=()=>state.data.students;
 const student=id=>allStudents().find(p=>p.id===id);
 const rowsFor=id=>state.data.delays.filter(row=>row.student_id===id);
 function allowed(){
-  if(!canRecord()) return isStudent()?['dashboard','myDelays','myAppeals','profile']:['profile'];
+  if(!canRecord()) return isStudent()?['dashboard','myDelays','myAppeals','inbox','profile']:['inbox','profile'];
   const pages=['dashboard','students','delays','appeals','reports'];
-  if(isAdmin()) pages.push('staff','manage');
+  if(isAdmin()) pages.push('followup','staff','manage');
   if(isStudentGate()) pages.push('myDelays','myAppeals');
-  return [...pages,'profile'];
+  return [...pages,'inbox','profile'];
 }
 const hasValue=(actual,wanted)=>actual===wanted?' selected':'';
 
@@ -74,9 +76,10 @@ function resetFilters(){
 }
 async function fetchData(){
   const id=++state.loadId;
-  const data=await backend().overview();
+  const api=backend();
+  const [{overview,...followup},inbox]=await Promise.all([api.followup(),api.inbox()]);
   if(id!==state.loadId) return false;
-  state.data=data;
+  state.data={...overview,followup,inbox,classHistory:indexClassMoves(followup.class_moves)};
   if(!allowed().includes(state.page)) state.page=allowed()[0];
   return true;
 }
@@ -109,7 +112,8 @@ function doneLoading(error=''){
 }
 function nav(key){
   const count=['appeals','myAppeals'].includes(key)?appealsFor(key==='myAppeals').filter(a=>a.status==='pending'&&!a.delay_cancelled).length:0;
-  return '<button type="button" class="nav-item'+(state.page===key?' active':'')+'" data-page="'+key+'"'+(state.page===key?' aria-current="page"':'')+'>'+icon(pageIcons[key])+e(pageNames[key])+(count?'<span class="nav-count">'+fa(count)+'</span>':'')+'</button>';
+  return '<button type="button" class="nav-item'+(state.page===key?' active':'')+'" data-page="'+key+'"'+(state.page===key?' aria-current="page"':'')+'>'+icon(pageIcons[key])+e(pageNames[key])+(key==='inbox'?'<span class="nav-count" id="inbox-unread"'+(state.data.inbox.unread?'':' hidden')+'>'+fa(state.data.inbox.unread)+'</span>':
+    count?'<span class="nav-count">'+fa(count)+'</span>':'')+'</button>';
 }
 function render(){
   if(!state.data){login();return;}
@@ -117,7 +121,7 @@ function render(){
   const demoBadge=state.mode==='demo'?'<span class="badge">نسخهٔ آزمایشی</span>':'';
   const switcher=state.mode==='demo'?'<div class="nav-group"><p class="nav-label">تغییر نقش آزمایشی</p><select id="demo-role" aria-label="نقش آزمایشی">'+Object.entries(roleNames).map(([id,title])=>'<option value="'+id+'"'+hasValue(isStudentGate()?'gate':me().role,id)+'>'+e(title)+'</option>').join('')+'</select></div>':'';
   app.innerHTML='<div class="layout'+(state.menu?' menu-open':'')+'"><button id="screen-mask" type="button" data-action="menu" aria-label="بستن منو"></button><aside id="sidebar" class="sidebar'+(state.menu?' open':'')+'" aria-label="منوی سامانه">'+branding()+'<nav><div class="nav-group"><p class="nav-label">منوی اصلی</p>'+allowed().filter(x=>!['staff','manage','myDelays','myAppeals','profile'].includes(x)).map(nav).join('')+'</div><div class="nav-group"><p class="nav-label">'+(isAdmin()?'مدیریت سامانه':'حساب کاربری')+'</p>'+allowed().filter(x=>['staff','manage','myDelays','myAppeals','profile'].includes(x)).map(nav).join('')+'</div></nav>'+switcher+'<div class="sidebar-bottom"><div class="school-term">'+tile('calendar')+'<div><strong>سال تحصیلی</strong><small>'+classYear()+'</small></div></div><button class="nav-item" type="button" data-action="logout">'+icon('logout')+'خروج از حساب</button></div></aside><header class="topbar"><div class="crumb">'+button('','menu','data-action="menu" aria-label="منو" aria-controls="sidebar" aria-expanded="'+state.menu+'"','icon mobile-toggle')+'<span class="muted">پنل '+e(roleLabel())+'</span>'+icon('left')+'<span>'+e(pageLabel)+'</span></div><div class="top-actions">'+demoBadge+'<span class="top-date">'+icon('calendar')+e(showDate(today(),'long'))+'</span><span class="top-divider"></span><details class="identity"><summary aria-label="منوی حساب کاربری">'+avatar(me())+'<span class="identity-label"><strong>'+e(me().full_name)+'</strong><small>'+e(roleLabel())+'</small></span>'+icon('down')+'</summary><div class="account-menu">'+nav('profile')+'<button class="nav-item" type="button" data-action="logout">'+icon('logout')+'خروج از حساب</button></div></details></div></header><main class="main" id="main-content" tabindex="-1">'+({
-    dashboard,students,delays:()=>delays(false),appeals:()=>appeals(false),myDelays:()=>delays(true),myAppeals:()=>appeals(true),reports,staff,manage,profile
+    dashboard,students,delays:()=>delays(false),appeals:()=>appeals(false),myDelays:()=>delays(true),myAppeals:()=>appeals(true),reports,staff,followup:followupPage,inbox:inboxPage,manage,profile
   }[state.page]())+'</main></div>';
 }
 function headline(title,description='',actions=''){
@@ -136,16 +140,26 @@ function table(headers,body){
 function studentCell(person,sub=''){
   return '<div class="student-cell">'+avatar(person)+'<div><strong>'+e(person?.full_name??'—')+'</strong>'+(sub?'<small>'+e(sub)+'</small>':'')+'</div></div>';
 }
+function classNames(includePrevious=false){
+  const names=allStudents().map(p=>p.class_name);
+  if(includePrevious) for(const moves of state.data.classHistory.values()) names.push(...moves.map(move=>move.previous_class));
+  return [...new Set(names)].filter(Boolean).sort((a,b)=>a.localeCompare(b,'fa',{numeric:true}));
+}
 function peopleFilter(withDate=false){
-  const classes=[...new Set(allStudents().map(p=>p.class_name))].filter(Boolean).sort((a,b)=>a.localeCompare(b,'fa'));
+  const classes=classNames(state.page==='reports'||state.page==='delays');
   return '<div class="filters"><label class="search">'+icon('search')+'<input type="search" id="search-people" aria-label="جست‌وجوی دانش‌آموز" placeholder="'+(isAdmin()?'جست‌وجوی نام، کد ملی یا کلاس':'جست‌وجوی نام یا کلاس')+'" value="'+e(state.query)+'"></label><select id="class-filter" aria-label="فیلتر کلاس"><option value="">همهٔ کلاس‌ها</option>'+classes.map(c=>'<option value="'+e(c)+'"'+hasValue(state.className,c)+'>'+e(c)+'</option>').join('')+'</select>'+(withDate?button(state.filterDate?showDate(state.filterDate):'همهٔ تاریخ‌ها','calendar','data-action="filter-date"')+(state.filterDate?button('','close','data-action="reset-date" aria-label="پاک کردن فیلتر تاریخ"','icon'):''):'')+'</div>';
 }
 function filteredStudents(){
   return allStudents().filter(p=>(!state.className||p.class_name===state.className)&&matches(p,state.query));
 }
 function selectedDelays(){
-  const ids=new Set(filteredStudents().map(p=>p.id));
-  return state.data.delays.filter(d=>ids.has(d.student_id)&&(!state.filterDate||d.date_on===state.filterDate));
+  const people=new Map(allStudents().map(person=>[person.id,person]));
+  return state.data.delays.filter(delay=>{
+    const person=people.get(delay.student_id);
+    if(!person||(state.filterDate&&delay.date_on!==state.filterDate)) return false;
+    const name=studentClassOn(person,delay.date_on,state.data.classHistory.get(person.id));
+    return (!state.className||name===state.className)&&matchesInClass(person,state.query,name);
+  });
 }
 function paging(count){
   const pages=Math.max(1,Math.ceil(count/limit));
@@ -167,7 +181,7 @@ function delayTable(records,withStudent=true,withAppeal=false,withManagement=fal
       ...(row.cancelled_at?[]:[button('اصلاح','calendar','data-action="edit-delay" '+id,'compact'),button('لغو','close','data-action="cancel-delay" '+id,'compact')]),
       ...(row.has_history?[button('سابقهٔ تغییر','report','data-action="delay-history" '+id,'compact ghost')]:[])
     ].join(''):'';
-    return '<tr>'+(withStudent?'<td>'+studentCell(person)+'</td><td>'+e(person?.class_name??'—')+'</td>':'')+'<td><span class="ltr">'+e(showDate(row.date_on))+'</span>'+(row.note?'<br><small class="muted">'+e(row.note)+'</small>':'')+'</td><td>'+e(row.recorder_name)+'</td><td>'+showStatus(row.status)+'</td>'+(withAppeal?'<td>'+(row.status==='active'?button('ثبت اعتراض','message','data-action="new-appeal" data-id="'+e(row.id)+'"','compact soft'):'—')+'</td>':'')+(withManagement?'<td><div class="form-actions">'+(management||'—')+'</div></td>':'')+'</tr>';
+    return '<tr>'+(withStudent?'<td>'+studentCell(person)+'</td><td>'+e(person?studentClassOn(person,row.date_on,state.data.classHistory.get(person.id)):'—')+'</td>':'')+'<td><span class="ltr">'+e(showDate(row.date_on))+'</span>'+(row.note?'<br><small class="muted">'+e(row.note)+'</small>':'')+'</td><td>'+e(row.recorder_name)+'</td><td>'+showStatus(row.status)+'</td>'+(withAppeal?'<td>'+(row.status==='active'?button('ثبت اعتراض','message','data-action="new-appeal" data-id="'+e(row.id)+'"','compact soft'):'—')+'</td>':'')+(withManagement?'<td><div class="form-actions">'+(management||'—')+'</div></td>':'')+'</tr>';
   }).join('')||empty('سابقه‌ای برای نمایش وجود ندارد.',headers.length));
 }
 function dashboard(){
@@ -193,6 +207,7 @@ function dashboard(){
   return headline('پیشخوان',personal?'خلاصهٔ وضعیت حضور و اعتراض‌های شما':'خلاصهٔ وضعیت حضور و تأخیر دانش‌آموزان',actions)+
     '<section class="hero"><img class="hero-art" src="'+art+'" alt=""><div class="hero-copy"><span class="hero-tag">'+icon('cap')+e(roleLabel())+'</span><h2>'+e(personal?'سلام، '+me().full_name:'به پیشخوان مدرسه خوش آمدید')+'</h2><p>'+intro+'</p></div></section>'+statHTML+
     '<div class="insights">'+card('روند تأخیرها','تعداد تأخیرهای ثبت‌شده در هر روز',chart(current),'<span class="chart-range">۷ روز اخیر</span>')+card('دسترسی سریع','',quickHTML)+'</div>'+
+    (isAdmin()?'<div class="followup-preview">'+followupPreview()+'</div>':'')+
     card('آخرین تأخیرهای ثبت‌شده','',delayTable(delays.slice(0,5),!personal,false),button('مشاهدهٔ همه','left',personal?'data-page="myDelays"':'data-page="delays"','ghost compact'));
 }
 function chart(records){
@@ -246,7 +261,10 @@ function reports(){
 }
 function currentReport(){
   const {start,end}=state.page==='reports'?state.reportRange:{start:state.filterDate,end:state.filterDate};
-  const rows=buildReportRows(filteredStudents(),state.data.delays,start,end);
+  const people=state.page==='students'?filteredStudents():allStudents();
+  const rows=buildReportRows(people,state.data.delays,start,end,{classMoves:state.data.classHistory,
+    include:(person,name)=>(!state.className||name===state.className)&&(state.page==='students'||matchesInClass(person,state.query,name))});
+
   const dateLabel=start&&start===end?showDate(start):[
     start?'از '+showDate(start):'',end?'تا '+showDate(end):''
   ].filter(Boolean).join(' ');
@@ -265,7 +283,7 @@ function reportTable(rows){
 function reportResults(){
   const {rows}=currentReport();
   const [page,footer]=paginated(rows);
-  const summary='<div class="report-summary">'+fa(rows.length)+' دانش‌آموز · '+fa(rows.reduce((sum,row)=>sum+row.dates.length,0))+' تأخیر در بازهٔ انتخاب‌شده</div>';
+  const summary='<div class="report-summary">'+fa(new Set(rows.map(row=>row.person.id)).size)+' دانش‌آموز · '+fa(rows.reduce((sum,row)=>sum+row.dates.length,0))+' تأخیر در بازهٔ انتخاب‌شده</div>';
   return summary+reportTable(page)+footer;
 }
 async function printReport(){
@@ -295,6 +313,65 @@ function appeals(own){
   }).join('');
   return headline(own?pageNames.myAppeals:pageNames.appeals,own?'ثبت اعتراض روی یکی از تاریخ‌های تأخیر و مشاهدهٔ نتیجه':'مشاهدهٔ درخواست‌ها و ثبت نتیجهٔ بررسی',own?button('ثبت اعتراض','message','data-action="new-appeal"','primary'):'')+filters+'<div class="appeal-list">'+(cards||'<section class="card">'+empty('اعتراضی در این وضعیت وجود ندارد.')+'</section>')+'</div>';
 }
+function followupTable(rows){
+  return table(['دانش‌آموز','کلاس فعلی','تعداد تأخیر','پرونده'],rows.map(({person,count})=>
+    '<tr><td>'+studentCell(person)+'</td><td>'+e(person.class_name)+'</td><td>'+fa(count)+'</td><td>'+
+    button('مشاهدهٔ پرونده','left','data-action="person" data-id="'+e(person.id)+'"','compact ghost')+'</td></tr>').join('')||
+    empty('دانش‌آموزی به حد هشدار نرسیده است.',4));
+}
+function followupTitle(settings){
+  return 'از '+fa(settings.threshold)+' تأخیر به بالا در '+(settings.period==='week'?'این هفته':'این ماه');
+}
+function followupPreview(){
+  const settings=state.data.followup.settings;
+  const rows=followupRows(allStudents(),state.data.delays,settings);
+  return card('تأخیرهای پرتکرار',followupTitle(settings),followupTable(rows.slice(0,5)),
+    button('فهرست پیگیری','left','data-page="followup"','ghost compact'));
+}
+function followupResults(){
+  const [rows,footer]=paginated(followupRows(allStudents(),state.data.delays,state.data.followup.settings));
+  return followupTable(rows)+footer;
+}
+function followupPage(){
+  const controls=button('تنظیم هشدار','settings','data-action="followup-settings"','primary');
+  return headline(pageNames.followup,followupTitle(state.data.followup.settings),controls)+
+    card('فهرست پیگیری','','<div id="list-results">'+followupResults()+'</div>');
+}
+function inboxEntries(){
+  const {items}=state.data.inbox;
+  return items.map(item=>'<article class="card appeal-card inbox-item'+(item.read_at?'':' unread')+'"><div><h2>'+e(notificationTitles[item.kind])+'</h2>'+
+    '<p class="muted">تاریخ تأخیر <span class="ltr">'+e(showDate(item.date_on))+'</span></p></div>'+
+    '<div class="form-actions">'+(!item.read_at?badge('خوانده‌نشده','pending'):'')+
+    button('مشاهده','left','data-action="open-notification" data-id="'+e(item.id)+'"','compact ghost')+'</div></article>').join('')||
+    '<section class="card">'+empty('اعلانی وجود ندارد.')+'</section>';
+}
+function inboxPage(){
+  return headline(pageNames.inbox,'اعلان‌های مربوط به حساب شما',
+    button('تازه‌سازی','refresh','data-action="refresh-inbox"')+
+    button('خواندن همه','check','data-action="mark-inbox" id="mark-inbox"'+(state.data.inbox.unread?'':' disabled')))+
+    '<div id="inbox-entries" class="appeal-list">'+inboxEntries()+'</div>';
+}
+async function refreshInbox(markRead=false,item=null){
+  if(!state.data) return;
+  const load=state.loadId;
+  const seq=++inboxSequence;
+  const result=await backend().inbox(markRead,item);
+  if(load!==state.loadId||seq!==inboxSequence||!state.data) return;
+  const previous=state.data.inbox;
+  if(previous.unread===result.unread&&previous.items.length===result.items.length&&
+    previous.items.every((old,index)=>old.id===result.items[index].id&&old.read_at===result.items[index].read_at)) return;
+  state.data.inbox=result;
+  const counter=document.querySelector('#inbox-unread');
+  if(counter){counter.hidden=!result.unread;counter.textContent=fa(result.unread);}
+  const items=document.querySelector('#inbox-entries');
+  if(items){
+    const focus=document.activeElement?.dataset;
+    items.innerHTML=inboxEntries();
+    if(focus?.action==='open-notification') items.querySelector('[data-id="'+CSS.escape(focus.id)+'"]')?.focus();
+  }
+  const mark=document.querySelector('#mark-inbox');
+  if(mark) mark.disabled=!result.unread;
+}
 function staff(){
   const rows=state.data.staff.map(person=>{
     const date=person.gate_assigned_at||person.created_at;
@@ -317,7 +394,7 @@ function profile(){
 }
 function updateList(){
   const result=document.querySelector('#list-results');
-  const fn={students:peopleResults,delays:()=>delayResults(false),myDelays:()=>delayResults(true),reports:reportResults}[state.page];
+  const fn={students:peopleResults,delays:()=>delayResults(false),myDelays:()=>delayResults(true),reports:reportResults,followup:followupResults}[state.page];
   if(result&&fn){result.innerHTML=fn();return;}
   render();
 }
@@ -431,7 +508,8 @@ function personModal(){
     details=gradesError?'<div class="notice error">'+e(gradesError)+'</div>':!grades?'<div class="notice" role="status">در حال دریافت نمرات…</div>':
       table(['درس','نوبت','نمره'],grades.map(g=>'<tr><td>'+e(g.subject)+'</td><td>'+e(g.term)+'</td><td>'+fa(g.score)+'</td></tr>').join('')||empty('هنوز نمره‌ای ثبت نشده است.',3));
   }
-  return modalFrame('پروندهٔ دانش‌آموز',profileInfo+tabs+details);
+  const transfer=isAdmin()?button('جابه‌جایی کلاس','users','data-action="move-class" data-id="'+e(id)+'"','compact'):'';
+  return modalFrame('پروندهٔ دانش‌آموز',profileInfo+(transfer?'<div class="tabs">'+transfer+'</div>':'')+tabs+details);
 }
 function delayChangeEditor(){
   const modal=state.modal;
@@ -467,8 +545,33 @@ function reportDateModal(){
   return modalFrame(field==='start'?'انتخاب تاریخ شروع':'انتخاب تاریخ پایان',calendar(visible,new Set([selected]))+
     '<p class="notice error" id="report-date-error" role="alert" hidden></p><div class="form-actions report-date-actions">'+button('پاک کردن تاریخ','close','data-action="clear-report-date"','compact')+'</div>');
 }
+function inboxDelayModal(){
+  const {delay,appeal,kind}=state.modal;
+  const answer=appeal?.response?'<p class="notice">پاسخ بررسی '+e(appeal.response)+'</p>':'';
+  return modalFrame(notificationTitles[kind],delayTable([delay],false)+answer);
+}
+function followupSettingsModal(){
+  const {period,threshold}=state.data.followup.settings;
+  return modalFrame('تنظیم هشدار تأخیر','<form data-form="followup-settings" class="stack">'+
+    '<label class="field">بازه<select name="period" required><option value="week"'+hasValue(period,'week')+'>هفته، از شنبه</option><option value="month"'+hasValue(period,'month')+'>ماه شمسی</option></select></label>'+
+    '<label class="field">حد هشدار<input name="threshold" dir="ltr" type="text" inputmode="numeric" maxlength="2" value="'+e(fa(threshold))+'" required><small>از ۱ تا ۳۱ تأخیر</small></label>'+
+    '<div data-form-message hidden></div><div class="form-actions">'+submit('ذخیرهٔ تنظیم','check')+'</div></form>');
+}
+function classMoveModal(){
+  const m=state.modal;
+  const person=student(m.id);
+  const history=(state.data.classHistory.get(m.id)??[]).slice().reverse();
+  const options=classNames().filter(name=>name!==person.class_name).map(name=>'<option value="'+e(name)+'"></option>').join('');
+  const previous=history.length?'<section class="stack"><h3>سوابق جابه‌جایی</h3>'+table(['از کلاس','به کلاس','تاریخ جابه‌جایی'],history.map(move=>
+    '<tr><td>'+e(move.previous_class)+'</td><td>'+e(move.new_class)+'</td><td><span class="ltr">'+e(showDate(move.effective_on))+'</span></td></tr>').join(''))+'</section>':'';
+  return modalFrame('جابه‌جایی کلاس','<form data-form="class-move" class="stack"><p class="notice">'+e(person.full_name)+' · کلاس فعلی '+e(person.class_name)+'</p>'+
+    '<label class="field">کلاس مقصد<input name="class_name" list="available-classes" maxlength="80" value="'+e(m.className??'')+'" required></label><datalist id="available-classes">'+options+'</datalist>'+
+    '<div><h3>تاریخ جابه‌جایی</h3>'+button(showDate(m.selected,'long'),'calendar','data-action="toggle-move-calendar" aria-expanded="'+m.calendar+'"','compact')+
+    (m.calendar?calendar(m.visible,new Set([m.selected])):'')+'</div>'+
+    '<div data-form-message hidden></div><div class="form-actions">'+submit('ثبت جابه‌جایی','check')+'</div>'+previous+'</form>');
+}
 function renderModal(){
-  const methods={editDelay:delayChangeEditor,cancelDelay:delayChangeEditor,history:delayHistoryModal,revokeGate:revokeGateModal,reportDate:reportDateModal,delay:delayModal,appeal:appealModal,review:reviewModal,gate:gateModal,person:personModal,date:()=>modalFrame('فیلتر تاریخ گزارش',calendar(state.modal.visible,new Set([state.modal.selected])))};
+  const methods={inboxDelay:inboxDelayModal,followupSettings:followupSettingsModal,classMove:classMoveModal,editDelay:delayChangeEditor,cancelDelay:delayChangeEditor,history:delayHistoryModal,revokeGate:revokeGateModal,reportDate:reportDateModal,delay:delayModal,appeal:appealModal,review:reviewModal,gate:gateModal,person:personModal,date:()=>modalFrame('فیلتر تاریخ گزارش',calendar(state.modal.visible,new Set([state.modal.selected])))};
   dialog.innerHTML=methods[state.modal.type]();
 }
 
@@ -594,6 +697,15 @@ const forms={
       modal.saving=false;
     }
   },
+  'followup-settings':(form,data)=>{
+    const threshold=digits(data.get('threshold')).trim();
+    if(!/^\d{1,2}$/.test(threshold)) throw new Error('KH2_INVALID_FOLLOWUP');
+    return saveAdminModal(backend().saveFollowup(data.get('period'),Number(threshold)),'تنظیم هشدار ذخیره شد.');
+  },
+  'class-move':(form,data)=>{
+    const m=state.modal;
+    return saveAdminModal(backend().moveStudent(m.id,data.get('class_name'),m.selected,m.expectedClass),'جابه‌جایی کلاس ثبت شد.');
+  },
   'update-delay':(form,data)=>{
     const m=state.modal;
     const correcting=m.type==='editDelay';
@@ -716,6 +828,34 @@ const actions={
   logout:leave,
   retry:start,
   menu:()=>{state.menu=!state.menu;render();document.querySelector(state.menu?'#sidebar .nav-item':'.mobile-toggle')?.focus();},
+  'followup-settings':()=>{if(isAdmin()) openModal('followupSettings');},
+  'move-class':id=>{
+    const person=isAdmin()&&student(id);
+    if(person) openModal('classMove',{id,expectedClass:person.class_name,selected:today(),visible:today(),calendar:false});
+  },
+  'toggle-move-calendar':()=>{
+    state.modal.calendar=!state.modal.calendar;
+    renderDelayAndFocus('[data-action="toggle-move-calendar"]');
+  },
+  'refresh-inbox':()=>refreshInbox(),
+  'mark-inbox':()=>refreshInbox(true),
+  'open-notification':async id=>{
+    const item=state.data.inbox.items.find(entry=>entry.id===id);
+    if(!item) return;
+    await refreshInbox(false,id);
+    if(!await fetchData()) return;
+    if(item.kind==='appeal_added'){
+      if(!canRecord()){render();return;}
+      setPage('appeals');
+      const appeal=appealsFor(false).find(entry=>entry.delay_id===item.delay_id&&entry.status==='pending'&&!entry.delay_cancelled);
+      if(appeal) openModal('review',{id:appeal.id});
+      return;
+    }
+    const delay=rowsFor(me().id).find(entry=>entry.id===item.delay_id);
+    if(!delay){render();return;}
+    const appeal=appealsFor(true).find(entry=>entry.delay_id===delay.id);
+    openModal('inboxDelay',{delay,appeal,kind:item.kind});
+  },
   print:printReport,
   'export-report':exportReport,
   'report-period':mode=>{
@@ -758,6 +898,12 @@ const actions={
   'month-prev':()=>changeModalDate(-1),
   'month-next':()=>changeModalDate(1),
   'pick-day':id=>{
+    if(state.modal.type==='classMove'){
+      state.modal.selected=id;
+      state.modal.calendar=false;
+      renderDelayAndFocus('[data-action="toggle-move-calendar"]');
+      return;
+    }
     if(state.modal.type==='reportDate'){selectReportDate(state.modal.field,id);return;}
     if(state.modal.type==='editDelay'){
       const selection=delaySelection();
@@ -800,7 +946,11 @@ const actions={
 document.addEventListener('click',async event=>{
   const control=event.target.closest('button');
   if(!control||control.disabled||(state.modal?.saving&&dialog.contains(control))) return;
-  if(control.dataset.page){setPage(control.dataset.page);return;}
+  if(control.dataset.page){
+    setPage(control.dataset.page);
+    if(control.dataset.page==='inbox') void refreshInbox().catch(()=>{});
+    return;
+  }
   const run=actions[control.dataset.action];
   if(!run) return;
   try{await run(control.dataset.id);}
@@ -813,7 +963,8 @@ document.addEventListener('input',event=>{
     const selection=delaySelection();
     selection.query=event.target.value;
     dialog.querySelector('#delay-person-results').innerHTML=delayPeopleOptions(selection);
-  }else if(event.target.name==='note'&&state.modal?.type==='delay') delaySelection().note=event.target.value;
+  }else if(event.target.name==='class_name'&&state.modal?.type==='classMove') state.modal.className=event.target.value;
+  else if(event.target.name==='note'&&state.modal?.type==='delay') delaySelection().note=event.target.value;
   else if(event.target.name==='change_reason'&&['editDelay','cancelDelay'].includes(state.modal?.type)) state.modal.reason=event.target.value;
 });
 document.addEventListener('change',async event=>{
@@ -833,4 +984,9 @@ async function start(){
     else doneLoading(friendly(error));
   }
 }
+function pollInbox(){
+  if(state.mode==='live'&&state.data&&!document.hidden) void refreshInbox().catch(()=>{});
+}
+document.addEventListener('visibilitychange',pollInbox);
+setInterval(pollInbox,45000);
 void start();

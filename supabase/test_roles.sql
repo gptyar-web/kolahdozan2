@@ -13,6 +13,7 @@ declare
   batch_date date;
   correction_id uuid;
   assignment_date timestamptz;
+  notice_id uuid;
   gate_appeal_id uuid;
   gate_password_hash text;
   appeal_id uuid;
@@ -194,6 +195,54 @@ begin
     perform public.kh2_revoke_gate(other_gate_id);
     raise exception 'Student revoked someone else’s role';
   exception when insufficient_privilege then assert sqlerrm='KH2_FORBIDDEN', sqlerrm; end;
+
+  perform set_config('request.jwt.claim.sub',admin_id::text,true);
+  assert public.kh2_followup()->'settings'->>'period'='month', 'Default period is missing';
+  perform public.kh2_save_followup('week',2);
+  assert public.kh2_followup()->'settings'->>'threshold'='2', 'Administrator could not save a threshold';
+  perform public.kh2_move_student(student_id,'آزمایش سه',test_date,'آزمایش یک');
+  assert (select class_name from public.kh2_people where id=student_id)='آزمایش سه', 'Current class did not change';
+  result := public.kh2_followup();
+  assert exists(select 1 from jsonb_array_elements(result->'class_moves') m where m->>'student_id'=student_id::text
+    and m->>'previous_class'='آزمایش یک' and m->>'new_class'='آزمایش سه' and m->>'effective_on'=test_date::text), 'Class history was not recorded';
+  begin
+    perform public.kh2_move_student(student_id,'آزمایش چهار',test_date-1,'آزمایش سه');
+    raise exception 'Old transfer dates can break class history';
+  exception when raise_exception then assert sqlerrm='KH2_CLASS_MOVE_ORDER',sqlerrm; end;
+  perform public.kh2_move_student(other_id,'آزمایش چهار',test_date,'آزمایش دو');
+
+  perform set_config('request.jwt.claim.sub',student_id::text,true);
+  result := public.kh2_followup();
+  assert (result->'settings')='null'::jsonb and jsonb_array_length(result->'class_moves')=1, 'Private class and settings data leaked';
+  begin
+    perform public.kh2_move_student(student_id,'آزمایش پنج',test_date+1,'آزمایش سه');
+    raise exception 'Student could change class';
+  exception when insufficient_privilege then null; end;
+  begin
+    perform public.kh2_save_followup('month',5);
+    raise exception 'Student could change follow-up settings';
+  exception when insufficient_privilege then null; end;
+
+  result := public.kh2_inbox();
+  assert exists(select 1 from jsonb_array_elements(result->'items') n where n->>'kind'='appeal_approved' and n->>'delay_id'=delay_id::text), 'Appeal outcome was not delivered';
+  select (n->>'id')::uuid into strict notice_id from jsonb_array_elements(result->'items') n
+    where n->>'kind'='delay_added' and n->>'delay_id'=delay_id::text;
+  perform set_config('request.jwt.claim.sub',other_id::text,true);
+  result := public.kh2_inbox(false,notice_id);
+  assert not exists(select 1 from jsonb_array_elements(result->'items') n where n->>'id'=notice_id::text), 'Another student read a private notification';
+  perform set_config('request.jwt.claim.sub',student_id::text,true);
+  result := public.kh2_inbox();
+  assert exists(select 1 from jsonb_array_elements(result->'items') n where n->>'id'=notice_id::text and n->>'read_at' is null), 'Another student could mark a private notification read';
+  result := public.kh2_inbox(false,notice_id);
+  assert exists(select 1 from jsonb_array_elements(result->'items') n where n->>'id'=notice_id::text and n->>'read_at' is not null), 'Student could not mark a notification read';
+  result := public.kh2_inbox(true);
+  assert result->>'unread'='0','Student could not mark all as read';
+
+  perform set_config('request.jwt.claim.sub',gate_id::text,true);
+  result := public.kh2_inbox();
+  assert not exists(select 1 from jsonb_array_elements(result->'items') n where n->>'kind'='appeal_added'), 'Revoked gate account retained reviewer notifications';
+  assert exists(select 1 from public.kh2_inbox_items where recipient_id=gate_id and kind='appeal_added'), 'Recorder did not receive an appeal notification before revocation';
+  assert exists(select 1 from public.kh2_inbox_items where recipient_id=admin_id and kind='appeal_added'), 'Administrator did not receive an unassigned appeal notification';
 
   raise notice 'School portal role and data checks passed';
 end;

@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {active,calendarDays,classYear,dayParts,importRows,matches,shift,showDate,today} from '../dist/domain.js';
-import {printLedger,reportDate,reportPeriod,reportRows} from '../dist/report.js';
+import {indexClassMoves,studentClassOn,printLedger,reportDate,reportPeriod,reportRows} from '../dist/report.js';
+import {followupRows} from '../dist/followup.js';
 import * as demo from '../dist/demo.js';
 
 test('Persian calendar handles leap days, Tehran school-year labels, and month boundaries',()=>{
@@ -140,4 +141,57 @@ test('an administrator can correct and cancel with audit history and revoke only
   assert.equal(personal.students.length,1);
   await assert.rejects(demo.registerDelays([target.id],[date]),/KH2_FORBIDDEN/);
   await assert.rejects(demo.delayHistory(original.id),/KH2_FORBIDDEN/);
+});
+
+
+test('follow-up thresholds count only active delays in the selected calendar period',()=>{
+  const people=[{id:'1',full_name:'دانش‌آموز اول'},{id:'2',full_name:'دانش‌آموز دوم'}];
+  const delay=(student_id,date_on,status='active')=>({student_id,date_on,status});
+  const delays=[delay('1','2026-11-14'),delay('1','2026-11-16','rejected'),delay('1','2026-11-13'),
+    delay('2','2026-11-16'),delay('2','2026-11-15','approved'),delay('2','2026-11-14','cancelled')];
+  assert.deepEqual(followupRows(people,delays,{period:'week',threshold:2},'2026-11-16'),[{person:people[0],count:2}]);
+  assert.deepEqual(followupRows(people,delays,{period:'month',threshold:3},'2026-11-16'),[{person:people[0],count:3}]);
+});
+
+test('historical reports allocate delays to the class on each date, including the transfer date',()=>{
+  const person={id:'1',full_name:'دانش‌آموز',class_name:'۲۷۱'};
+  const moves=indexClassMoves([
+    {student_id:'1',effective_on:'2026-11-16',previous_class:'۲۷۲',new_class:'۲۷۱'},
+    {student_id:'1',effective_on:'2026-11-14',previous_class:'۲۷۱',new_class:'۲۷۲'}
+  ]);
+  assert.equal(studentClassOn(person,'2026-11-13',moves.get('1')),'۲۷۱');
+  assert.equal(studentClassOn(person,'2026-11-14',moves.get('1')),'۲۷۲');
+  assert.equal(studentClassOn(person,'2026-11-16',moves.get('1')),'۲۷۱');
+  const delays=['2026-11-13','2026-11-14','2026-11-16'].map(date_on=>({student_id:'1',date_on,status:'active'}));
+  const rows=reportRows([person],delays,'2026-11-13','2026-11-16',{classMoves:moves});
+  assert.deepEqual(rows.map(({person,dates})=>[person.class_name,dates]),[
+    ['۲۷۱',['2026-11-13','2026-11-16']],['۲۷۲',['2026-11-14']]
+  ]);
+  const previous=reportRows([person],[],'2026-11-14','2026-11-15',{classMoves:moves});
+  assert.deepEqual(previous.map(row=>row.person.class_name),['۲۷۲']);
+});
+
+test('student inbox is private and shows both the delay and appeal result',async()=>{
+  demo.selectDemoRole('student');
+  const pupil=(await demo.overview()).me;
+  const day=shift(today(),-65);
+  demo.selectDemoRole('admin');
+  await demo.registerDelays([pupil.id],[day]);
+  assert.ok(!(await demo.inbox()).items.some(item=>item.kind==='delay_added'&&item.date_on===day));
+  demo.selectDemoRole('student');
+  const delay=(await demo.overview()).delays.find(item=>item.date_on===day);
+  let items=(await demo.inbox()).items;
+  const notification=items.find(item=>item.kind==='delay_added'&&item.delay_id===delay.id);
+  assert.ok(notification&&!notification.read_at);
+  await demo.inbox(false,notification.id);
+  assert.ok((await demo.inbox()).items.find(item=>item.id===notification.id).read_at);
+  await demo.act('send_appeal',{delay_id:delay.id,reason:'درخواست بررسی تأخیر'});
+  demo.selectDemoRole('admin');
+  items=(await demo.inbox()).items;
+  assert.ok(items.some(item=>item.kind==='appeal_added'&&item.delay_id===delay.id));
+  const appeal=(await demo.overview()).appeals.find(item=>item.delay_id===delay.id);
+  await demo.act('review_appeal',{appeal_id:appeal.id,status:'approved',response:'درخواست بررسی شد'});
+  demo.selectDemoRole('student');
+  assert.ok((await demo.inbox()).items.some(item=>item.kind==='appeal_approved'&&item.delay_id===delay.id));
+  assert.equal((await demo.inbox(true)).unread,0);
 });

@@ -76,6 +76,11 @@ function rpc(name,body={}) {
   return memberRequest('/rest/v1/rpc/kh2_'+name,{method:'POST',body});
 }
 export const overview=()=>rpc('overview');
+export const followup=()=>rpc('followup');
+export const inbox=(markRead=false,item=null)=>rpc('inbox',{p_mark_read:markRead,p_item:item});
+export const saveFollowup=(period,threshold)=>rpc('save_followup',{p_period:period,p_threshold:threshold});
+export const moveStudent=(id,className,date,expectedClass)=>
+  rpc('move_student',{p_student:id,p_class:className,p_effective:date,p_expected_class:expectedClass});
 export const gradesFor=(student)=>rpc('grades_for',{p_student:student});
 export const act=(action,data)=>rpc('act',{p_action:action,p_data:data});
 export const updateDelay=(id,action,reason,student=null,date=null)=>
@@ -124,6 +129,11 @@ const messages={
   KH2_NO_CONFIG:'اتصال سامانه به پایگاه داده هنوز تنظیم نشده است.',
   KH2_FORBIDDEN:'این حساب به این بخش دسترسی ندارد.',
   KH2_EXPIRED:'نشست شما پایان یافته است. دوباره وارد شوید.',
+  KH2_INVALID_FOLLOWUP:'بازهٔ هفته یا ماه و تعداد ۱ تا ۳۱ را وارد کنید.',
+  KH2_INVALID_CLASS:'نام کلاس باید بین ۱ تا ۸۰ نویسه باشد.',
+  KH2_UNCHANGED_CLASS:'کلاس مقصد با کلاس فعلی یکسان است.',
+  KH2_CLASS_CHANGED:'کلاس دانش‌آموز تغییر کرده است. پرونده را دوباره باز کنید.',
+  KH2_CLASS_MOVE_ORDER:'تاریخ جابه‌جایی باید بعد از آخرین انتقال ثبت‌شده باشد.',
   KH2_INVALID_CHANGE_REASON:'دلیل تغییر باید ۳ تا ۴۰۰ نویسه باشد.',
   KH2_UNCHANGED_DELAY:'تاریخ یا دانش‌آموز را تغییر دهید.',
   KH2_DELAY_UNAVAILABLE:'این تأخیر قبلاً لغو شده یا پیدا نشد.',

@@ -241,3 +241,7 @@ textarea{resize:vertical}
   #print-area .ledger .ledger-name{text-align:start;padding-inline:1.2mm;overflow-wrap:anywhere}
   #print-area .ledger .ledger-date{direction:ltr;white-space:nowrap;font-size:7.3pt}
 }
+.followup-preview{margin-bottom:17px}
+.inbox-item{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.inbox-item.unread{border-inline-start:3px solid var(--accent)}
+.inbox-item h2{font-size:15px;margin-bottom:2px}
