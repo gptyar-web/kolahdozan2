@@ -102,7 +102,7 @@ export function printLedger(rows,period,year=classYear()){
   return cover+groups.map(([title,students])=>printClass(title,students,period,year)).join('');
 }
 
-function loadSheetJS(){
+export function loadSheetJS(){
   if(window.XLSX) return Promise.resolve(window.XLSX);
   if(!sheetJS){
     sheetJS=new Promise((resolve,reject)=>{

@@ -1,4 +1,4 @@
-import { shift,today } from './domain.js?v=delay-management';
+import { digits,shift,today } from './domain.js?v=delay-management';
 
 const now=today();
 const seededStudents=[
@@ -33,7 +33,9 @@ const initial={
   inboxItems:[],
   educators:[{...teacher,personnel_code:'100001',evaluator:true,password_pending:false},{...deputy,deputy:true,password_pending:true}],
   assignments:[{id:'demo-teaching',staff_id:teacher.id,class_name:'دهم تجربی',subject:'ریاضی'}],
-  passwords:{}
+  passwords:{},
+  managedPasswords:{},
+  ledgers:{}
 };
 let database=structuredClone(initial);
 let actor=admin;
@@ -75,27 +77,66 @@ export async function educators(){
     classes:all?[...new Set(database.students.map(person=>person.class_name))]:[]
   };
 }
-export async function issueStaffPassword(id,password){
+export async function staffPassword(id){
+  if(actor.role!=='admin') throw new Error('KH2_FORBIDDEN');
+  return {password:database.managedPasswords[id]??null};
+}
+export async function setStaffPassword(id,password){
   if(actor.role!=='admin') throw new Error('KH2_FORBIDDEN');
   const person=database.educators.find(item=>item.id===id);
   if(!person) throw new Error('KH2_STAFF_MISSING');
-  if(!person.password_pending&&database.passwords[person.username]!==password) throw new Error('KH2_PASSWORD_ALREADY_ISSUED');
+  const size=new TextEncoder().encode(password).length;
+  if(size<8||size>72) throw new Error('KH2_INVALID_STAFF_PASSWORD');
+  if(/^\d{10}$/.test(person.username)&&/^\d{10}$/.test(digits(password))) password=digits(password);
   database.passwords[person.username]=password;
+  database.managedPasswords[id]=password;
   person.password_pending=false;
+}
+export async function importStaffDetails(rows){
+  if(actor.role!=='admin') throw new Error('KH2_FORBIDDEN');
+  const people=Object.keys(rows).map(username=>database.educators.find(person=>person.username===username));
+  if(people.some(person=>!person)) throw new Error('KH2_STAFF_IMPORT_UNKNOWN');
+  for(const person of people) person.details={...person.details,...rows[person.username]};
+  return people.length;
 }
 export async function teacherAssignment(id,className,subject,remove=null){
   if(actor.role!=='admin') throw new Error('KH2_FORBIDDEN');
   if(remove){
-    database.assignments=database.assignments.filter(row=>row.id!==remove||row.staff_id!==id);
+    const assignment=database.assignments.find(row=>row.id===remove&&row.staff_id===id);
+    if(assignment) assignment.archived_at??=now;
     return;
   }
   subject=subject.trim();
   if(!database.educators.some(person=>person.id===id)) throw new Error('KH2_STAFF_MISSING');
   if(!database.students.some(person=>person.class_name===className)) throw new Error('KH2_INVALID_CLASS');
   if(!subject||[...subject].length>100) throw new Error('KH2_INVALID_SUBJECT');
-  if(!database.assignments.some(row=>row.staff_id===id&&row.class_name===className&&row.subject===subject)){
-    database.assignments.push({id:crypto.randomUUID(),staff_id:id,class_name:className,subject});
-  }
+  const assignment=database.assignments.find(row=>row.staff_id===id&&row.class_name===className&&row.subject===subject);
+  if(assignment) assignment.archived_at=null;
+  else database.assignments.push({id:crypto.randomUUID(),staff_id:id,class_name:className,subject});
+}
+export async function teachingLedger(id,date){
+  const assignment=database.assignments.find(row=>row.id===id&&row.staff_id===actor.id);
+  if(!assignment) throw new Error('KH2_FORBIDDEN');
+  if(date<'1900-01-01'||date>today()) throw new Error('KH2_INVALID_DATE');
+  const saved=database.ledgers[id+':'+date];
+  const entries=new Map((saved?.rows??[]).map(row=>[row.id,row]));
+  const rows=database.students.flatMap(person=>{
+    const previous=database.classMoves.find(move=>move.student_id===person.id&&move.effective_on>date)?.previous_class;
+    const entry=entries.get(person.id);
+    if(entry) return [{...entry,full_name:person.full_name}];
+    if(assignment.archived_at||(previous??person.class_name)!==assignment.class_name) return [];
+    return [{id:person.id,full_name:person.full_name,attendance:null,score:null,note:''}];
+  });
+  return {rows,topic:saved?.topic??'',revision:saved?.revision??0,archived:Boolean(assignment.archived_at)};
+}
+export async function saveTeachingLedger(id,date,revision,topic,rows){
+  const current=await teachingLedger(id,date);
+  if(current.archived) throw new Error('KH2_ARCHIVED_ASSIGNMENT');
+  if(current.revision!==revision) throw new Error('KH2_LEDGER_CHANGED');
+  const allowed=new Set(current.rows.map(row=>row.id));
+  if(rows.some(row=>!allowed.has(row.id))) throw new Error('KH2_INVALID_LEDGER');
+  database.ledgers[id+':'+date]={revision:revision+1,topic,rows:rows.filter(row=>row.attendance||row.score!==null||row.note)};
+  return revision+1;
 }
 export async function gradesFor(id){
   if(actor.role!=='admin') throw new Error('KH2_FORBIDDEN');
@@ -131,6 +172,7 @@ export async function changePassword(username,previous,password){
   if(previous!==expected) throw new Error('invalid_credentials');
   if(previous===password) throw new Error('same_password');
   database.passwords[username]=password;
+  delete database.managedPasswords[actor.id];
 }
 export async function act(action,data){
   if(['import_students','import_grades','add_gate'].includes(action)&&actor.role!=='admin') throw new Error('KH2_FORBIDDEN');

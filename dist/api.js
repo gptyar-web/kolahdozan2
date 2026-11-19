@@ -84,7 +84,12 @@ export const moveStudent=(id,className,date,expectedClass)=>
 export const gradesFor=(student)=>rpc('grades_for',{p_student:student});
 export const studentRecord=id=>rpc('student_record',{p_student:id});
 export const educators=()=>rpc('staff_directory');
-export const issueStaffPassword=(staff,password)=>rpc('issue_staff_password',{p_staff:staff,p_password:password});
+export const staffPassword=staff=>rpc('staff_password',{p_staff:staff});
+export const setStaffPassword=(staff,password)=>rpc('set_staff_password',{p_staff:staff,p_password:password});
+export const importStaffDetails=rows=>rpc('import_staff_details',{p_rows:rows});
+export const teachingLedger=(assignment,date)=>rpc('teaching_ledger',{p_assignment:assignment,p_date:date});
+export const saveTeachingLedger=(assignment,date,revision,topic,rows)=>
+  rpc('save_teaching_ledger',{p_assignment:assignment,p_date:date,p_revision:revision,p_topic:topic,p_rows:rows});
 export const teacherAssignment=(staff,className,subject,remove=null)=>
   rpc('set_teacher_assignment',{p_staff:staff,p_class:className,p_subject:subject,p_remove:remove});
 export const setBirthDate=(id,date)=>rpc('set_birth_date',{p_student:id,p_birth_date:date});
@@ -139,6 +144,11 @@ const messages={
   KH2_INVALID_FOLLOWUP:'بازهٔ هفته یا ماه و تعداد ۱ تا ۳۱ را وارد کنید.',
   KH2_INVALID_CLASS:'نام کلاس باید بین ۱ تا ۸۰ نویسه باشد.',
   KH2_STAFF_MISSING:'حساب این همکار پیدا نشد.',
+  KH2_INVALID_STAFF_PASSWORD:'رمز عبور باید از ۸ تا ۷۲ بایت و بدون نویسهٔ کنترلی باشد.',
+  KH2_STAFF_IMPORT_UNKNOWN:'یک یا چند کد معلم در فهرست دبیران ثبت نشده است. کدها را در فایل بررسی کنید.',
+  KH2_ARCHIVED_ASSIGNMENT:'این تخصیص بایگانی شده و دفتر آن فقط خواندنی است.',
+  KH2_INVALID_LEDGER:'اطلاعات دفتر معتبر نیست. نمره باید از ۰ تا ۲۰ و حداکثر تا دو رقم اعشار باشد.',
+  KH2_LEDGER_CHANGED:'دفتر این تاریخ در صفحهٔ دیگری تغییر کرده است. تاریخ را دوباره بارگیری کنید.',
   KH2_PASSWORD_ALREADY_ISSUED:'رمز اولیهٔ این حساب قبلاً صادر شده است.',
   KH2_INVALID_SUBJECT:'نام درس را وارد کنید. حداکثر ۱۰۰ نویسه.',
   KH2_UNCHANGED_CLASS:'کلاس مقصد با کلاس فعلی یکسان است.',

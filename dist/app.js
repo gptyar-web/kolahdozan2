@@ -1,18 +1,19 @@
-import * as live from './api.js?v=staff-accounts';
-import * as demo from './demo.js?v=staff-accounts';
+import * as live from './api.js?v=teaching-ledger';
+import * as demo from './demo.js?v=teaching-ledger';
 import { icon } from './icons.js';
-import {downloadReport,indexClassMoves,printLedger,reportDate,reportPeriod,reportRows as buildReportRows,studentClassOn} from './report.js?v=parent-requests';
+import {downloadReport,indexClassMoves,loadSheetJS,printLedger,reportDate,reportPeriod,reportRows as buildReportRows,studentClassOn} from './report.js?v=teaching-ledger';
 import {followupRows,matchesInClass,notificationTitles,parentRequestMessage} from './followup.js?v=parent-requests';
 import { active,calendarDays,classYear,dayParts,digits,escape as e,fa,importRows,matches,monthStart,school,shift,showDate,today } from './domain.js?v=delay-management';
+import {attendanceLabels,scoreValue,workbookStaffDetails} from './staff.js?v=teaching-ledger';
 
 const app=document.querySelector('#app');
 const dialog=document.querySelector('#modal');
 const toast=document.querySelector('#toast');
 const roleNames={admin:'مدیر سامانه',gate:'نمایندهٔ درب مدرسه',student:'دانش‌آموز',teacher:'دبیر',deputy:'معاون'};
 const statusNames={active:'تأخیر ثبت‌شده',pending:'در انتظار بررسی',approved:'اعتراض پذیرفته شد',rejected:'اعتراض رد شد',cancelled:'لغوشده'};
-const pageNames={dashboard:'پیشخوان',students:'دانش‌آموزان',records:'پرونده اطلاعاتی دانش‌آموز',delays:'ثبت و سوابق تأخیر',appeals:'اعتراض‌ها',myDelays:'تأخیرهای من',myAppeals:'اعتراض‌های من',reports:'گزارش و چاپ',staff:'نمایندگان درب مدرسه',followup:'پیگیری تأخیرها',parentRequests:notificationTitles.parent_requested,inbox:'اعلان‌ها',manage:'ثبت گروهی',profile:'پروفایل من',educators:'دبیران و معاونان',teaching:'کلاس‌ها و درس‌های من'};
-const pageIcons={dashboard:'home',students:'users',records:'file',delays:'clock',appeals:'message',myDelays:'clock',myAppeals:'message',reports:'report',staff:'shield',followup:'clock',parentRequests:'users',inbox:'message',manage:'upload',profile:'user',educators:'users',teaching:'cap'};
-const state={mode:'login',page:'dashboard',data:null,photos:{},query:'',className:'',filterDate:'',reportRange:reportPeriod('all'),reportExcuse:'all',pageIndex:0,menu:false,modal:null,appealFilter:'all',loadId:0};
+const pageNames={dashboard:'پیشخوان',students:'دانش‌آموزان',records:'پرونده اطلاعاتی دانش‌آموز',delays:'ثبت و سوابق تأخیر',appeals:'اعتراض‌ها',myDelays:'تأخیرهای من',myAppeals:'اعتراض‌های من',reports:'گزارش و چاپ',staff:'نمایندگان درب مدرسه',followup:'پیگیری تأخیرها',parentRequests:notificationTitles.parent_requested,inbox:'اعلان‌ها',manage:'ثبت گروهی',profile:'پروفایل من',educators:'دبیران و معاونان',teaching:'کلاس‌ها و درس‌های من',ledger:'دفتر دیجیتالی'};
+const pageIcons={dashboard:'home',students:'users',records:'file',delays:'clock',appeals:'message',myDelays:'clock',myAppeals:'message',reports:'report',staff:'shield',followup:'clock',parentRequests:'users',inbox:'message',manage:'upload',profile:'user',educators:'users',teaching:'cap',ledger:'file'};
+const state={mode:'login',page:'dashboard',data:null,photos:{},query:'',className:'',filterDate:'',reportRange:reportPeriod('all'),reportExcuse:'all',pageIndex:0,menu:false,modal:null,appealFilter:'all',loadId:0,ledger:null};
 let toastTimer;
 let refreshTimer;
 let focusAfterModal;
@@ -37,10 +38,11 @@ const allStudents=()=>state.data.students;
 const student=id=>allStudents().find(p=>p.id===id);
 const rowsFor=id=>state.data.delays.filter(row=>row.student_id===id);
 function allowed(){
-  if(isEducator()) return ['teaching','inbox','profile'];
+  if(isEducator()) return ['teaching','ledger','inbox','profile'];
   if(!canRecord()) return isStudent()?['dashboard','myDelays','myAppeals','inbox','profile']:['inbox','profile'];
   const pages=['dashboard','students','records','delays','appeals','reports','parentRequests'];
   if(isAdmin()) pages.push('followup','staff','educators','manage');
+  if(isAdmin()&&state.data.educators?.assignments?.some(row=>row.staff_id===me().id)) pages.push('ledger');
   if(isStudentGate()) pages.push('myDelays','myAppeals');
   return [...pages,'inbox','profile'];
 }
@@ -129,7 +131,7 @@ function render(){
   const demoBadge=state.mode==='demo'?'<span class="badge">نسخهٔ آزمایشی</span>':'';
   const switcher=state.mode==='demo'?'<div class="nav-group"><p class="nav-label">تغییر نقش آزمایشی</p><select id="demo-role" aria-label="نقش آزمایشی">'+Object.entries(roleNames).map(([id,title])=>'<option value="'+id+'"'+hasValue(isStudentGate()?'gate':me().role,id)+'>'+e(title)+'</option>').join('')+'</select></div>':'';
   app.innerHTML='<div class="layout'+(state.menu?' menu-open':'')+'"><button id="screen-mask" type="button" data-action="menu" aria-label="بستن منو"></button><aside id="sidebar" class="sidebar'+(state.menu?' open':'')+'" aria-label="منوی سامانه">'+branding()+'<nav><div class="nav-group"><p class="nav-label">منوی اصلی</p>'+allowed().filter(x=>!['staff','manage','myDelays','myAppeals','profile'].includes(x)).map(nav).join('')+'</div><div class="nav-group"><p class="nav-label">'+(isAdmin()?'مدیریت سامانه':'حساب کاربری')+'</p>'+allowed().filter(x=>['staff','manage','myDelays','myAppeals','profile'].includes(x)).map(nav).join('')+'</div></nav>'+switcher+'<div class="sidebar-bottom"><div class="school-term">'+tile('calendar')+'<div><strong>سال تحصیلی</strong><small>'+classYear()+'</small></div></div><button class="nav-item" type="button" data-action="logout">'+icon('logout')+'خروج از حساب</button></div></aside><header class="topbar"><div class="crumb">'+button('','menu','data-action="menu" aria-label="منو" aria-controls="sidebar" aria-expanded="'+state.menu+'"','icon mobile-toggle')+'<span class="muted">پنل '+e(roleLabel())+'</span>'+icon('left')+'<span>'+e(pageLabel)+'</span></div><div class="top-actions">'+demoBadge+'<span class="top-date">'+icon('calendar')+e(showDate(today(),'long'))+'</span><span class="top-divider"></span><details class="identity"><summary aria-label="منوی حساب کاربری">'+avatar(me())+'<span class="identity-label"><strong>'+e(me().full_name)+'</strong><small>'+e(roleLabel())+'</small></span>'+icon('down')+'</summary><div class="account-menu">'+nav('profile')+'<button class="nav-item" type="button" data-action="logout">'+icon('logout')+'خروج از حساب</button></div></details></div></header><main class="main" id="main-content" tabindex="-1">'+({
-    dashboard,students,records:recordsPage,delays:()=>delays(false),appeals:()=>appeals(false),myDelays:()=>delays(true),myAppeals:()=>appeals(true),reports,staff,followup:followupPage,parentRequests:parentRequestsPage,inbox:inboxPage,manage,profile,educators:educatorsPage,teaching:myTeachingPage
+    dashboard,students,records:recordsPage,delays:()=>delays(false),appeals:()=>appeals(false),myDelays:()=>delays(true),myAppeals:()=>appeals(true),reports,staff,followup:followupPage,parentRequests:parentRequestsPage,inbox:inboxPage,manage,profile,educators:educatorsPage,teaching:myTeachingPage,ledger:ledgerPage
   }[state.page]())+'</main></div>';
 }
 function headline(title,description='',actions=''){
@@ -426,28 +428,77 @@ const educator=id=>state.data.educators?.staff?.find(person=>person.id===id);
 const educatorAssignments=id=>(state.data.educators?.assignments??[]).filter(row=>row.staff_id===id);
 function educatorsPage(){
   const directory=state.data.educators;
-  const heading=headline(pageNames.educators);
+  const heading=headline(pageNames.educators,'',button('ورود اطلاعات از اکسل','upload','data-action="staff-import"'));
   if(directory.error) return heading+'<p class="notice error" role="alert">'+e(directory.error)+'</p>';
   const rows=directory.staff.map(person=>{
     const id=e(person.id);
     const role=person.role==='admin'&&person.deputy?'مدیر و معاون':roleNames[person.role];
-    const password=person.password_pending?button('صدور رمز اولیه','key','data-action="issue-staff-password" data-id="'+id+'"','compact'):'—';
+    const password=person.role==='admin'?'—':button(person.password_pending?'تعیین رمز اولیه':'مدیریت رمز عبور','key','data-action="staff-password" data-id="'+id+'"','compact');
     return '<tr><td>'+studentCell(person)+'</td><td><bdi dir="ltr">'+e(person.username)+'</bdi></td><td>'+e(role)+'</td>'+
-      '<td><bdi dir="ltr">'+e(person.personnel_code??'—')+'</bdi></td><td>'+(person.evaluator?'بله':'—')+'</td>'+
+      '<td>'+button('پروندهٔ دبیر','user','data-action="staff-details" data-id="'+id+'"','compact')+'</td>'+
       '<td>'+button('تخصیص کلاس و درس','cap','data-action="teacher-assignment" data-id="'+id+'"','compact')+'</td><td>'+password+'</td></tr>';
   }).join('');
-  return heading+card('فهرست دبیران و معاونان','',table(['نام و نام خانوادگی','نام کاربری','نقش','کد پرسنلی','ارزیاب','تدریس','رمز اولیه'],rows||empty('هنوز حسابی در فهرست ثبت نشده است.',7)));
+  return heading+card('فهرست دبیران و معاونان','',table(['نام و نام خانوادگی','نام کاربری','نقش','مشخصات','تدریس','رمز عبور'],rows||empty('هنوز حسابی در فهرست ثبت نشده است.',6)));
 }
 function assignmentTable(id,editable=false){
   const headers=['کلاس','درس'];
   if(editable) headers.push('عملیات');
   const rows=educatorAssignments(id).map(row=>'<tr><td>'+e(row.class_name)+'</td><td>'+e(row.subject)+'</td>'+
-    (editable?'<td>'+button('حذف تخصیص','close','data-action="remove-teacher-assignment" data-id="'+e(row.id)+'"','compact')+'</td>':'')+'</tr>').join('');
+    (editable?'<td>'+(row.archived_at?badge('بایگانی‌شده'):button('حذف تخصیص','close','data-action="remove-teacher-assignment" data-id="'+e(row.id)+'"','compact'))+'</td>':'')+'</tr>').join('');
   return table(headers,rows||empty('هنوز کلاسی یا درسی تخصیص داده نشده است.',headers.length));
 }
 function myTeachingPage(){
   const error=state.data.educators?.error;
-  return headline(pageNames.teaching)+(error?'<p class="notice error" role="alert">'+e(error)+'</p>':card('تخصیص‌های تدریس','',assignmentTable(me().id)));
+  return headline(pageNames.teaching,'',button(pageNames.ledger,'file','data-page="ledger"'))+
+    (error?'<p class="notice error" role="alert">'+e(error)+'</p>':card('تخصیص‌های تدریس','',assignmentTable(me().id)));
+}
+function staffInformation(person){
+  const info={'تاریخ تولد':null,...person.details,'کد ملی':person.national_id??person.details?.['کد ملی'],
+    'کد پرسنلی':person.personnel_code??person.details?.['کد پرسنلی'],'معاون':person.deputy?'بله':'خیر','ارزیاب':person.evaluator?'بله':'خیر'};
+  return table(['مشخصه','مقدار'],Object.entries(info).map(([label,value])=>'<tr><th scope="row">'+e(label)+'</th><td><bdi>'+e(value??'—')+'</bdi></td></tr>').join(''));
+}
+function ledgerPage(){
+  const heading=headline(pageNames.ledger);
+  const error=state.data.educators?.error;
+  if(error) return heading+'<p class="notice error" role="alert">'+e(error)+'</p>';
+  const assignments=educatorAssignments(me().id);
+  if(!assignments.length) return heading+card('کلاس و درس','',empty('هنوز کلاسی و درسی به شما تخصیص داده نشده است.'));
+  const selection=state.ledger;
+  const date=selection?.date??today();
+  const options=assignments.map(row=>'<option value="'+e(row.id)+'"'+hasValue(selection?.assignment,row.id)+'>'+
+    e(row.class_name+' · '+row.subject+(row.archived_at?' (بایگانی‌شده)':''))+'</option>').join('');
+  return heading+card('انتخاب دفتر','','<div class="filters"><label class="field">کلاس و درس<select id="ledger-assignment">'+
+    '<option value="">کلاس و درس را انتخاب کنید</option>'+options+'</select></label>'+
+    button(showDate(date,'long'),'calendar','data-action="ledger-date" aria-label="انتخاب تاریخ دفتر"')+
+    (selection?.error?button('بارگیری دوباره','refresh','data-action="reload-ledger"'):'')+'</div>')+
+    (selection?.loading?'<p class="notice" role="status">در حال دریافت دفتر…</p>':selection?.error?
+      '<p class="notice error" role="alert">'+e(selection.error)+'</p>':selection?.result?ledgerEntries(selection.result):'');
+}
+function ledgerEntries(result){
+  const disabled=result.archived?' disabled':'';
+  const rows=result.rows.map(row=>{
+    const id=e(row.id), name=e(row.full_name);
+    const options=Object.entries(attendanceLabels).map(([value,label])=>'<option value="'+value+'"'+hasValue(row.attendance,value)+'>'+e(label)+'</option>').join('');
+    return '<tr><th scope="row">'+name+'</th><td><select name="attendance-'+id+'" aria-label="حضور '+name+'"'+disabled+
+      '><option value="">ثبت نشده</option>'+options+'</select></td><td><input type="text" dir="ltr" inputmode="decimal" size="5" maxlength="5" name="score-'+id+'" value="'+e(row.score??'')+
+      '" aria-label="نمرهٔ '+name+'"'+disabled+'></td><td><textarea rows="2" name="note-'+id+'" maxlength="300" aria-label="یادداشت '+name+'"'+disabled+'>'+e(row.note)+'</textarea></td></tr>';
+  }).join('');
+  return card('ثبت جلسه','',
+    '<form data-form="ledger-save" class="stack"><label class="field">موضوع جلسه<textarea name="topic" rows="2" maxlength="500"'+disabled+'>'+e(result.topic)+'</textarea></label>'+
+    table(['نام دانش‌آموز','حضور و غیاب','نمره از ۲۰','یادداشت'],rows||empty('برای این تاریخ دانش‌آموزی در دفتر نمایش داده نمی‌شود.',4))+
+    '<div data-form-message hidden></div>'+(result.archived?'<p class="notice">این دفتر بایگانی شده و فقط خواندنی است.</p>':
+      '<div class="form-actions">'+submit('ذخیرهٔ دفتر','check')+
+      button('بارگیری دوباره','refresh','data-action="reload-ledger"')+'</div>')+'</form>');
+}
+async function loadLedger(assignment,date){
+  const current={assignment,date,result:null,error:'',loading:Boolean(assignment)};
+  state.ledger=current;
+  render();
+  if(!assignment) return;
+  try{current.result=await backend().teachingLedger(assignment,date);}
+  catch(error){current.error=friendly(error);}
+  current.loading=false;
+  if(state.ledger===current&&state.page==='ledger') render();
 }
 function manage(){
   return headline('ثبت گروهی','ثبت دانش‌آموزان، عکس‌ها و نمرات از طریق فهرست')+
@@ -459,7 +510,9 @@ function importCard(kind,i,title,sub,example){
   return '<section class="card setting-card"><div class="setting-title">'+tile(i,kind==='grades'?'mint':'')+'<div><h2>'+title+'</h2><p>'+sub+'</p></div></div><form data-form="import" data-kind="'+kind+'" class="stack"><label class="field">فایل فهرست<input type="file" name="file" accept=".csv,.tsv,.txt,text/csv,text/plain"><small>فایل CSV، TSV یا متن با کدگذاری UTF-8 و حداکثر ۳۰۰ ردیف</small></label><label class="field">یا ورود مستقیم فهرست<textarea name="text" rows="4" placeholder="'+e(example)+'"></textarea></label><div data-form-message hidden></div><div class="form-actions">'+submit(kind==='students'?'ثبت دانش‌آموزان':'ثبت نمرات','upload')+'</div></form></section>';
 }
 function profile(){
-  return headline(pageNames.profile,'اطلاعات حساب کاربری و تغییر رمز عبور')+'<div class="setting-grid"><section class="card setting-card"><div class="setting-title">'+avatar(me(),true)+'<div><h2>'+e(me().full_name)+'</h2><p>'+e(roleLabel())+'</p></div></div>'+table(['مشخصه','مقدار'],'<tr><td>نام کاربری</td><td><span class="ltr">'+e(me().username)+'</span></td></tr>'+(me().class_name?'<tr><td>کلاس</td><td>'+e(me().class_name)+'</td></tr>':''))+'</section><section class="card setting-card"><div class="setting-title">'+tile('key')+'<div><h2>تغییر رمز عبور</h2></div></div><form data-form="password" class="stack"><label class="field">رمز عبور فعلی<input type="password" name="old" dir="ltr" autocomplete="current-password" required maxlength="72"></label><label class="field">رمز عبور جدید<input type="password" name="new_password" dir="ltr" autocomplete="new-password" minlength="8" maxlength="72" required><small>حداقل ۸ نویسه</small></label><label class="field">تکرار رمز عبور جدید<input type="password" name="confirm" dir="ltr" autocomplete="new-password" required maxlength="72"></label><div data-form-message hidden></div><div class="form-actions">'+submit('ذخیرهٔ رمز عبور','key')+'</div></form></section></div>';
+  const person=educator(me().id);
+  return headline(pageNames.profile,'اطلاعات حساب کاربری و تغییر رمز عبور')+'<div class="setting-grid"><section class="card setting-card"><div class="setting-title">'+avatar(me(),true)+'<div><h2>'+e(me().full_name)+'</h2><p>'+e(roleLabel())+'</p></div></div>'+table(['مشخصه','مقدار'],'<tr><td>نام کاربری</td><td><span class="ltr">'+e(me().username)+'</span></td></tr>'+(me().class_name?'<tr><td>کلاس</td><td>'+e(me().class_name)+'</td></tr>':''))+'</section><section class="card setting-card"><div class="setting-title">'+tile('key')+'<div><h2>تغییر رمز عبور</h2></div></div><form data-form="password" class="stack"><label class="field">رمز عبور فعلی<input type="password" name="old" dir="ltr" autocomplete="current-password" required maxlength="72"></label><label class="field">رمز عبور جدید<input type="password" name="new_password" dir="ltr" autocomplete="new-password" minlength="8" maxlength="72" required><small>حداقل ۸ نویسه</small></label><label class="field">تکرار رمز عبور جدید<input type="password" name="confirm" dir="ltr" autocomplete="new-password" required maxlength="72"></label><div data-form-message hidden></div><div class="form-actions">'+submit('ذخیرهٔ رمز عبور','key')+'</div></form></section></div>'+
+    (person?card('مشخصات شغلی و فردی','',staffInformation(person)):'');
 }
 function updateList(){
   const result=document.querySelector('#list-results');
@@ -707,14 +760,30 @@ function staffPasswordModal(){
   const modal=state.modal;
   const person=educator(modal.id);
   const name='<p class="notice">'+e(person.full_name)+' · <bdi dir="ltr">'+e(person.username)+'</bdi></p>';
-  const content=modal.issued?'<label class="field">رمز عبور اولیه<input id="issued-staff-password" readonly dir="ltr" value="'+e(modal.password)+'"></label>'+
-    '<p>رمز را کپی کنید و به صاحب حساب بدهید. رمز در همین پنجره نمایش داده می‌شود.</p>':
-    '<form data-form="issue-staff-password" class="stack"><p>برای این حساب یک رمز عبور اولیه صادر می‌شود.</p>'+
-    '<div data-form-message hidden></div><div class="form-actions">'+submit('صدور رمز اولیه','key')+'</div></form>';
-  return modalFrame('صدور رمز اولیه','<div class="stack">'+name+content+'</div>');
+  const current=modal.password?'<label class="field">رمز تنظیم‌شدهٔ مدیر<input id="staff-current-password" readonly dir="ltr" autocomplete="off" value="'+e(modal.password)+'"></label>':
+    modal.lookedUp?'<p class="notice" role="status">رمز قابل نمایشی برای این حساب وجود ندارد. می‌توانید رمز تازه‌ای تعیین کنید.</p>':'';
+  const lookup=modal.loading?'<p role="status">در حال دریافت رمز…</p>':
+    button(modal.password?'پنهان کردن رمز':'نمایش رمز','key','data-action="show-staff-password"');
+  return modalFrame('مدیریت رمز عبور','<div class="stack">'+name+current+'<div class="form-actions">'+lookup+'</div>'+
+    '<form data-form="set-staff-password" class="stack"><label class="field">رمز عبور تازه<input name="password" type="password" dir="ltr" minlength="8" maxlength="72" autocomplete="new-password" required></label>'+
+    '<label class="field">تکرار رمز عبور تازه<input name="confirm" type="password" dir="ltr" maxlength="72" autocomplete="new-password" required></label>'+
+    '<div data-form-message hidden></div><div class="form-actions">'+submit('ذخیرهٔ رمز عبور','check')+
+    button('ساخت رمز پیشنهادی','refresh','data-action="suggest-staff-password"')+'</div></form></div>');
+}
+function staffDetailsModal(){
+  const person=educator(state.modal.id);
+  return modalFrame('پروندهٔ دبیر','<div class="stack"><h3>'+e(person.full_name)+'</h3>'+staffInformation(person)+'</div>');
+}
+function staffImportModal(){
+  return modalFrame('ورود اطلاعات از اکسل','<form data-form="staff-import" class="stack">'+
+    '<label class="field">فایل اکسل دبیران<input name="workbook" type="file" accept=".xlsx" required>'+
+    '<small>ستون «کد معلم (نام کاربری)» باید با نام کاربری حساب‌های ثبت‌شده یکسان باشد.</small></label>'+
+    '<div data-form-message hidden></div><div class="form-actions">'+submit('ثبت اطلاعات دبیران','upload')+'</div></form>');
 }
 function renderModal(){
-  const methods={studentRecord:studentRecordModal,parentRequest:parentRequestModal,inboxParent:inboxParentModal,inboxDelay:inboxDelayModal,followupSettings:followupSettingsModal,classMove:classMoveModal,editDelay:delayChangeEditor,cancelDelay:delayChangeEditor,history:delayHistoryModal,revokeGate:revokeGateModal,reportDate:reportDateModal,delay:delayModal,appeal:appealModal,review:reviewModal,gate:gateModal,person:personModal,teacherAssignment:teacherAssignmentModal,staffPassword:staffPasswordModal,date:()=>modalFrame('فیلتر تاریخ گزارش',calendar(state.modal.visible,new Set([state.modal.selected])))};
+  const methods={studentRecord:studentRecordModal,parentRequest:parentRequestModal,inboxParent:inboxParentModal,inboxDelay:inboxDelayModal,followupSettings:followupSettingsModal,classMove:classMoveModal,editDelay:delayChangeEditor,cancelDelay:delayChangeEditor,history:delayHistoryModal,revokeGate:revokeGateModal,reportDate:reportDateModal,delay:delayModal,appeal:appealModal,review:reviewModal,gate:gateModal,person:personModal,teacherAssignment:teacherAssignmentModal,staffPassword:staffPasswordModal,staffDetails:staffDetailsModal,staffImport:staffImportModal,
+    ledgerDate:()=>modalFrame('انتخاب تاریخ دفتر',calendar(state.modal.visible,new Set([state.modal.selected]))),
+    date:()=>modalFrame('فیلتر تاریخ گزارش',calendar(state.modal.visible,new Set([state.modal.selected])))};
   dialog.innerHTML=methods[state.modal.type]();
 }
 
@@ -824,21 +893,52 @@ const forms={
     if(!isAdmin()||modal?.type!=='teacherAssignment') return;
     await saveAndReloadModal(backend().teacherAssignment(modal.id,data.get('class_name'),data.get('subject')),'تخصیص کلاس و درس ثبت شد.');
   },
-  'issue-staff-password':async()=>{
+  'set-staff-password':async(form,data)=>{
     const modal=state.modal;
-    if(!isAdmin()||modal?.type!=='staffPassword'||modal.issued) return;
+    if(!isAdmin()||modal?.type!=='staffPassword') return;
+    const password=data.get('password');
+    if(password!==data.get('confirm')) throw new Error('تکرار رمز عبور با رمز تازه یکسان نیست.');
+    const size=new TextEncoder().encode(password).length;
+    if(size<8||size>72) throw new Error('KH2_INVALID_STAFF_PASSWORD');
     modal.saving=true;
     try{
-      await backend().issueStaffPassword(modal.id,modal.password);
+      await backend().setStaffPassword(modal.id,password);
       if(state.modal!==modal) return;
-      modal.issued=true;
       educator(modal.id).password_pending=false;
+      modal.password=null;
+      modal.lookedUp=false;
       render();
       renderModal();
-      const field=dialog.querySelector('#issued-staff-password');
-      field.focus();
-      field.select();
+      feedback(dialog.querySelector('[data-form="set-staff-password"]'),'رمز عبور ذخیره شد.','ok');
+      dialog.querySelector('[data-action="show-staff-password"]').focus();
     }finally{modal.saving=false;}
+  },
+  'staff-import':async(form,data)=>{
+    const modal=state.modal;
+    if(!isAdmin()||modal?.type!=='staffImport') return;
+    const file=data.get('workbook');
+    if(!file?.size||file.size>2*1024*1024) throw new Error('فایل اکسل باید حداکثر ۲ مگابایت باشد.');
+    modal.saving=true;
+    try{
+      const [xlsx,buffer]=await Promise.all([loadSheetJS(),file.arrayBuffer()]);
+      const count=await backend().importStaffDetails(workbookStaffDetails(xlsx,buffer));
+      form.reset();
+      feedback(form,'اطلاعات '+fa(count)+' نفر ثبت شد.','ok');
+      await reload();
+    }finally{modal.saving=false;}
+  },
+  'ledger-save':async(form,data)=>{
+    const selection=state.ledger;
+    const result=selection?.result;
+    if(!result||result.archived) return;
+    const topic=data.get('topic').trim();
+    const rows=result.rows.map(row=>({...row,attendance:data.get('attendance-'+row.id)||null,
+      score:scoreValue(data.get('score-'+row.id)),note:data.get('note-'+row.id).trim()}));
+    const revision=await backend().saveTeachingLedger(selection.assignment,selection.date,result.revision,topic,rows);
+    if(state.ledger===selection){
+      selection.result={...result,topic,rows,revision};
+      feedback(form,'دفتر این تاریخ ذخیره شد.','ok');
+    }
   },
   'parent-request':async()=>{
     const modal=state.modal;
@@ -949,12 +1049,12 @@ document.addEventListener('submit',async event=>{
 async function enterDemo(role='admin'){
   if(state.mode==='live') await live.signOut();
   demo.selectDemoRole(role);
-  state.mode='demo';state.page='dashboard';state.photos={};
+  state.mode='demo';state.page='dashboard';state.photos={};state.ledger=null;
   resetFilters();await reload();
 }
 function leave(){
   if(state.mode==='live') void live.signOut();
-  state.loadId++;state.mode='login';state.page='dashboard';state.data=null;state.photos={};
+  state.loadId++;state.mode='login';state.page='dashboard';state.data=null;state.photos={};state.ledger=null;
   clearTimeout(refreshTimer);resetFilters();closeModal();
   document.querySelector('#print-area').replaceChildren();login();
 }
@@ -1041,11 +1141,43 @@ const actions={
     if(!isAdmin()||modal?.type!=='teacherAssignment'||!educatorAssignments(modal.id).some(row=>row.id===id)) return;
     await saveAndReloadModal(backend().teacherAssignment(modal.id,null,null,id),'تخصیص حذف شد.');
   },
-  'issue-staff-password':id=>{
-    if(!isAdmin()||!educator(id)?.password_pending) return;
-    const password=Array.from(crypto.getRandomValues(new Uint8Array(16)),byte=>byte.toString(16).padStart(2,'0')).join('');
-    openModal('staffPassword',{id,password});
+  'staff-password':id=>{
+    const person=isAdmin()&&educator(id);
+    if(person&&person.role!=='admin') openModal('staffPassword',{id});
   },
+  'show-staff-password':async()=>{
+    const modal=state.modal;
+    if(!isAdmin()||modal?.type!=='staffPassword') return;
+    if(modal.password){modal.password=null;modal.lookedUp=false;renderModal();return;}
+    modal.loading=true;
+    renderModal();
+    try{
+      const result=await backend().staffPassword(modal.id);
+      modal.password=result.password;
+      modal.lookedUp=true;
+    }finally{
+      modal.loading=false;
+      if(state.modal===modal){
+        renderModal();
+        dialog.querySelector('#staff-current-password,[data-action="show-staff-password"]')?.focus();
+      }
+    }
+  },
+  'suggest-staff-password':()=>{
+    if(!isAdmin()||state.modal?.type!=='staffPassword') return;
+    const password=Array.from(crypto.getRandomValues(new Uint8Array(16)),byte=>byte.toString(16).padStart(2,'0')).join('');
+    const form=dialog.querySelector('[data-form="set-staff-password"]');
+    form.elements.password.value=password;
+    form.elements.confirm.value=password;
+    form.querySelector('button[type="submit"]').focus();
+  },
+  'staff-details':id=>{if(isAdmin()&&educator(id)) openModal('staffDetails',{id});},
+  'staff-import':()=>{if(isAdmin()) openModal('staffImport');},
+  'ledger-date':()=>{
+    const date=state.ledger?.date??today();
+    openModal('ledgerDate',{selected:date,visible:date});
+  },
+  'reload-ledger':()=>loadLedger(state.ledger.assignment,state.ledger.date),
   'edit-birth-date':()=>{
     const modal=state.modal;
     if(!isAdmin()||modal?.type!=='studentRecord'||!modal.record) return;
@@ -1132,6 +1264,10 @@ const actions={
   'month-prev':()=>changeModalDate(-1),
   'month-next':()=>changeModalDate(1),
   'pick-day':id=>{
+    if(state.modal.type==='ledgerDate'){
+      closeModal();
+      return loadLedger(state.ledger?.assignment??'',id);
+    }
     if(state.modal.type==='classMove'){
       state.modal.selected=id;
       state.modal.calendar=false;
@@ -1210,6 +1346,7 @@ document.addEventListener('input',event=>{
 document.addEventListener('change',async event=>{
   if(event.target.id==='class-filter'){state.className=event.target.value;state.pageIndex=0;updateList();}
   if(event.target.id==='report-excuse'){state.reportExcuse=event.target.value;state.pageIndex=0;updateList();}
+  if(event.target.id==='ledger-assignment') await loadLedger(event.target.value,state.ledger?.date??today());
   if(event.target.id==='demo-role') await enterDemo(event.target.value);
 });
 document.addEventListener('keydown',event=>{
