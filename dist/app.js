@@ -1,6 +1,6 @@
 import * as live from './api.js?v=classroom-notices';
 import * as demo from './demo.js?v=classroom-notices';
-import { icon } from './icons.js';
+import { icon } from './icons.js?v=school-portal';
 import {downloadReport,indexClassMoves,loadSheetJS,printLedger,reportDate,reportPeriod,reportRows as buildReportRows,studentClassOn} from './report.js?v=classroom-notices';
 import {followupRows,isClassroomNotification,matchesInClass,notificationTitles,parentRequestMessage} from './followup.js?v=classroom-notices';
 import { active,calendarDays,classYear,compareStudentNames,dayParts,digits,escape as e,fa,importRows,localizeGradeList,matches,monthStart,school,shift,showDate,today } from './domain.js?v=classroom-notices';
@@ -12,7 +12,7 @@ const toast=document.querySelector('#toast');
 const roleNames={admin:'مدیر سامانه',gate:'نمایندهٔ درب مدرسه',student:'دانش‌آموز',teacher:'دبیر',deputy:'معاون'};
 const statusNames={active:'تأخیر ثبت‌شده',pending:'در انتظار بررسی',approved:'اعتراض پذیرفته شد',rejected:'اعتراض رد شد',cancelled:'لغوشده'};
 const pageNames={dashboard:'پیشخوان',students:'دانش‌آموزان',records:'پرونده اطلاعاتی دانش‌آموز',delays:'ثبت و سوابق تأخیر',appeals:'اعتراض‌ها',myDelays:'تأخیرهای من',myAppeals:'اعتراض‌های من',reports:'گزارش و چاپ',staff:'نمایندگان درب مدرسه',followup:'پیگیری تأخیرها',parentRequests:notificationTitles.parent_requested,inbox:'اعلان‌ها',manage:'ثبت گروهی',profile:'پروفایل من',educators:'دبیران و معاونان',teaching:'کلاس‌ها و درس‌های من',ledger:'دفتر دیجیتالی'};
-const pageIcons={dashboard:'home',students:'users',records:'file',delays:'clock',appeals:'message',myDelays:'clock',myAppeals:'message',reports:'report',staff:'shield',followup:'clock',parentRequests:'users',inbox:'message',manage:'upload',profile:'user',educators:'users',teaching:'cap',ledger:'file'};
+const pageIcons={dashboard:'home',students:'users',records:'file',delays:'clock',appeals:'message',myDelays:'clock',myAppeals:'message',reports:'report',staff:'shield',followup:'clock',parentRequests:'users',inbox:'bell',manage:'upload',profile:'user',educators:'users',teaching:'cap',ledger:'file'};
 pageNames.coursework='نمرات و حضور من';
 pageIcons.coursework='cap';
 const state={mode:'login',page:'dashboard',data:null,photos:{},query:'',className:'',filterDate:'',reportRange:reportPeriod('all'),reportExcuse:'all',pageIndex:0,menu:false,modal:null,appealFilter:'all',loadId:0,ledger:null};
@@ -23,8 +23,9 @@ let inboxSequence=0;
 const limit=8;
 const delayModes={dates:'یک دانش‌آموز، چند تاریخ',students:'یک تاریخ، چند دانش‌آموز'};
 const reportExcuses={all:'همهٔ تأخیرها',excused:'تأخیرهای موجه',unexcused:'تأخیرهای غیرموجه'};
-const logo=new URL('./assets/favicon.svg',import.meta.url).href;
-const art=new URL('./assets/school-clock.webp',import.meta.url).href;
+const logo=new URL('./assets/favicon.svg?v=school-portal',import.meta.url).href;
+const dashboardArt=new URL('./assets/school-still-life.webp',import.meta.url).href;
+const mobileLayout=window.matchMedia('(max-width: 900px)');
 const backend=()=>state.mode==='demo'?demo:live;
 const me=()=>state.data.me;
 const isAdmin=()=>me().role==='admin';
@@ -72,7 +73,7 @@ function avatar(person,large=false) {
   return '<span class="avatar'+(large?' big':'')+'"'+(path?' data-photo="'+e(path)+'"':'')+'>'+(src?'<img src="'+e(src)+'" alt="">':letters?e(letters):icon('user'))+'</span>';
 }
 function branding(){
-  return '<div class="brand"><img src="'+logo+'" alt="" width="44" height="44"><div><strong>'+school+'</strong><small>سامانه مدیریت تأخیر دانش‌آموزان</small></div></div>';
+  return '<div class="brand"><img src="'+logo+'" alt="" width="44" height="44"><div><strong>'+school+'</strong><small>سامانهٔ دانش‌آموزی</small></div></div>';
 }
 function notify(message,kind=''){
   clearTimeout(toastTimer);
@@ -120,7 +121,39 @@ async function reload(){
   if(await fetchData()){render();void fetchPhotos();}
 }
 function login(error=''){
-  app.innerHTML='<div class="login-page"><aside class="login-visual"><img src="'+art+'" alt=""><h1>'+school+'</h1><p>مدیریت تأخیر، مشاهده سوابق و پیگیری اعتراض‌ها</p></aside><main class="login-main" id="main-content"><section class="login-card">'+branding()+'<div><h2>ورود به سامانه</h2><p class="muted">نام کاربری و رمز عبور خود را وارد کنید.</p></div><form id="login-form"><label class="field">نام کاربری<input name="username" dir="ltr" autocomplete="username" required maxlength="48"></label><label class="field">رمز عبور<input name="password" dir="ltr" type="password" autocomplete="current-password" required maxlength="72"></label><div data-form-message'+(error?' class="notice error" role="alert"':' hidden')+'>'+e(error)+'</div>'+submit('ورود به سامانه','left')+'</form><div class="form-actions">'+button('مشاهدهٔ نسخهٔ آزمایشی','home','data-action="demo"','soft')+'</div></section></main></div>';
+  app.innerHTML=`<div class="login-page">
+    <main class="login-main" id="main-content" tabindex="-1">
+      ${branding()}
+      <section class="login-card" aria-labelledby="login-title">
+        <div class="login-heading">
+          <h1 id="login-title">ورود به سامانه</h1>
+          <p>نام کاربری و رمز عبور خود را وارد کنید.</p>
+        </div>
+        <form id="login-form">
+          <label class="field">نام کاربری
+            <span class="login-input">${icon('user')}<input name="username" dir="ltr" autocomplete="username" required maxlength="48"></span>
+          </label>
+          <label class="field">رمز عبور
+            <span class="login-input">${icon('key')}<input name="password" dir="ltr" type="password" autocomplete="current-password" required maxlength="72"></span>
+          </label>
+          <div data-form-message${error?' class="notice error" role="alert"':' hidden'}>${e(error)}</div>
+          <button type="submit" class="btn primary">ورود به سامانه${icon('left')}</button>
+        </form>
+        <button type="button" class="login-demo" data-action="demo">
+          <span class="login-demo-icon">${icon('home')}</span>
+          <span><strong>مشاهدهٔ نسخهٔ آزمایشی</strong><small>گشت‌وگذار در سامانه با داده‌های نمونه</small></span>
+          ${icon('left')}
+        </button>
+      </section>
+      <p class="login-help">برای دریافت اطلاعات ورود، با دفتر مدرسه تماس بگیرید.</p>
+    </main>
+    <aside class="login-visual" aria-labelledby="login-visual-title">
+      <div class="login-visual-copy">
+        <h2 id="login-visual-title">مدیریت حضور<br>و سوابق آموزشی</h2>
+        <p>ثبت و پیگیری تأخیرها، نمرات و پروندهٔ دانش‌آموزان</p>
+      </div>
+    </aside>
+  </div>`;
 }
 function doneLoading(error=''){
   app.innerHTML='<main class="login-main" id="main-content"><section class="login-card">'+branding()+'<div class="notice'+(error?' error':'')+'" role="status">'+e(error||'در حال دریافت اطلاعات…')+'</div>'+(error?'<div class="form-actions">'+button('تلاش دوباره','refresh','data-action="retry"','primary')+button('بازگشت به ورود','logout','data-action="logout"')+'</div>':'')+'</section></main>';
@@ -130,12 +163,43 @@ function nav(key){
   return '<button type="button" class="nav-item'+(state.page===key?' active':'')+'" data-page="'+key+'"'+(state.page===key?' aria-current="page"':'')+'>'+icon(pageIcons[key])+e(pageNames[key])+(key==='inbox'?'<span class="nav-count" id="inbox-unread"'+(state.data.inbox.unread?'':' hidden')+'>'+fa(state.data.inbox.unread)+'</span>':
     count?'<span class="nav-count">'+fa(count)+'</span>':'')+'</button>';
 }
+function navigation(){
+  const pages=allowed();
+  const groups=[
+    ['امور دانش‌آموزان',['dashboard','students','records','delays','appeals','parentRequests','myDelays','myAppeals']],
+    ['آموزش و مدیریت',['teaching','ledger','coursework','reports','followup','educators','staff','manage']],
+    ['حساب کاربری',['inbox','profile']]
+  ];
+  return '<nav aria-label="بخش‌های سامانه">'+groups.map(([title,keys])=>{
+    const items=keys.filter(key=>pages.includes(key));
+    return items.length?'<div class="nav-group"><p class="nav-label">'+title+'</p>'+items.map(nav).join('')+'</div>':'';
+  }).join('')+'</nav>';
+}
+function inboxLabel(count){
+  return count?'اعلان‌ها، '+fa(count)+' پیام خوانده‌نشده':'اعلان‌ها';
+}
 function render(){
   if(!state.data){login();return;}
   const pageLabel=pageNames[state.page];
-  const demoBadge=state.mode==='demo'?'<span class="badge">نسخهٔ آزمایشی</span>':'';
+  const demoBadge=state.mode==='demo'?'<span class="badge demo-badge"><span class="dot"></span>نسخهٔ آزمایشی</span>':'';
   const switcher=state.mode==='demo'?'<div class="nav-group"><p class="nav-label">تغییر نقش آزمایشی</p><select id="demo-role" aria-label="نقش آزمایشی">'+Object.entries(roleNames).map(([id,title])=>'<option value="'+id+'"'+hasValue(isStudentGate()?'gate':me().role,id)+'>'+e(title)+'</option>').join('')+'</select></div>':'';
-  app.innerHTML='<div class="layout'+(state.menu?' menu-open':'')+'"><button id="screen-mask" type="button" data-action="menu" aria-label="بستن منو"></button><aside id="sidebar" class="sidebar'+(state.menu?' open':'')+'" aria-label="منوی سامانه">'+branding()+'<nav><div class="nav-group"><p class="nav-label">منوی اصلی</p>'+allowed().filter(x=>!['staff','manage','myDelays','myAppeals','profile'].includes(x)).map(nav).join('')+'</div><div class="nav-group"><p class="nav-label">'+(isAdmin()?'مدیریت سامانه':'حساب کاربری')+'</p>'+allowed().filter(x=>['staff','manage','myDelays','myAppeals','profile'].includes(x)).map(nav).join('')+'</div></nav>'+switcher+'<div class="sidebar-bottom"><div class="school-term">'+tile('calendar')+'<div><strong>سال تحصیلی</strong><small>'+classYear()+'</small></div></div><button class="nav-item" type="button" data-action="logout">'+icon('logout')+'خروج از حساب</button></div></aside><header class="topbar"><div class="crumb">'+button('','menu','data-action="menu" aria-label="منو" aria-controls="sidebar" aria-expanded="'+state.menu+'"','icon mobile-toggle')+'<span class="muted">پنل '+e(roleLabel())+'</span>'+icon('left')+'<span>'+e(pageLabel)+'</span></div><div class="top-actions">'+demoBadge+'<span class="top-date">'+icon('calendar')+e(showDate(today(),'long'))+'</span><span class="top-divider"></span><details class="identity"><summary aria-label="منوی حساب کاربری">'+avatar(me())+'<span class="identity-label"><strong>'+e(me().full_name)+'</strong><small>'+e(roleLabel())+'</small></span>'+icon('down')+'</summary><div class="account-menu">'+nav('profile')+'<button class="nav-item" type="button" data-action="logout">'+icon('logout')+'خروج از حساب</button></div></details></div></header><main class="main" id="main-content" tabindex="-1">'+({
+  const inert=state.menu?' inert':'';
+  const menuToggle='data-action="menu" aria-label="باز کردن منو" aria-controls="sidebar" aria-expanded="'+state.menu+'"';
+  const unread=state.data.inbox.unread;
+  const inboxShortcut='<button type="button" class="btn icon inbox-shortcut" data-page="inbox" aria-label="'+e(inboxLabel(unread))+'"'+(state.page==='inbox'?' aria-current="page"':'')+'>'+icon('bell')+'<span class="unread-dot"'+(unread?'':' hidden')+'></span></button>';
+  const logout='<button class="nav-item" type="button" data-action="logout">'+icon('logout')+'خروج از حساب</button>';
+  app.innerHTML='<div class="layout'+(state.menu?' menu-open':'')+'">'+
+    '<button id="screen-mask" type="button" data-action="menu" tabindex="-1" aria-label="بستن منو"></button>'+
+    '<aside id="sidebar" class="sidebar'+(state.menu?' open':'')+'" aria-label="منوی سامانه">'+branding()+
+      button('','close','data-action="menu" aria-label="بستن منو"','icon sidebar-close')+navigation()+switcher+
+      '<div class="sidebar-bottom"><div class="school-term">'+tile('calendar')+'<div><strong>سال تحصیلی</strong><small>'+classYear()+'</small></div></div>'+logout+'</div></aside>'+
+    '<header class="topbar"'+inert+'><div class="crumb">'+button('','menu',menuToggle,'icon mobile-toggle')+
+      '<span class="crumb-role muted">'+e(roleLabel())+'</span>'+icon('left')+'<span class="crumb-page">'+e(pageLabel)+'</span></div>'+
+      '<div class="top-actions">'+demoBadge+'<span class="top-date">'+icon('calendar')+e(showDate(today(),'long'))+'</span>'+inboxShortcut+
+      '<span class="top-divider"></span><details class="identity"><summary aria-label="منوی حساب کاربری">'+avatar(me())+
+      '<span class="identity-label"><strong>'+e(me().full_name)+'</strong><small>'+e(roleLabel())+'</small></span>'+icon('down')+
+      '</summary><div class="account-menu">'+nav('profile')+logout+'</div></details></div></header>'+
+    '<main class="main" id="main-content" tabindex="-1"'+inert+'>'+({
     dashboard,students,records:recordsPage,delays:()=>delays(false),appeals:()=>appeals(false),myDelays:()=>delays(true),myAppeals:()=>appeals(true),reports,staff,followup:followupPage,parentRequests:parentRequestsPage,inbox:inboxPage,manage,profile,educators:educatorsPage,teaching:myTeachingPage,ledger:ledgerPage,coursework:courseworkPage
   }[state.page]())+'</main></div>';
 }
@@ -150,7 +214,7 @@ function card(title,sub,content,control=''){
   return '<section class="card"><div class="card-head"><div><h2>'+e(title)+'</h2>'+(sub?'<p>'+e(sub)+'</p>':'')+'</div>'+control+'</div>'+content+'</section>';
 }
 function table(headers,body){
-  return '<div class="table-wrap"><table><thead><tr>'+headers.map(title=>'<th scope="col">'+e(title)+'</th>').join('')+'</tr></thead><tbody>'+body+'</tbody></table></div>';
+  return '<div class="table-wrap" tabindex="0" role="region" aria-label="جدول '+e(headers[0])+'"><table><thead><tr>'+headers.map(title=>'<th scope="col">'+e(title)+'</th>').join('')+'</tr></thead><tbody>'+body+'</tbody></table></div>';
 }
 function studentCell(person,sub=''){
   return '<div class="student-cell">'+avatar(person)+'<div><strong>'+e(person?.full_name??'—')+'</strong>'+(sub?'<small>'+e(sub)+'</small>':'')+'</div></div>';
@@ -215,17 +279,18 @@ function dashboard(){
     ['کل دانش‌آموزان',people.length,'users','','دانش‌آموزان ثبت‌شده'],['تأخیرهای امروز',countToday,'clock','peach','در روز جاری'],['تأخیرهای این ماه',countMonth,'calendar','blue',showDate(date,'month')],['اعتراض‌های باز',waiting,'message','mint','در انتظار بررسی']
   ];
   const actions=personal?button('ثبت اعتراض','message','data-action="new-appeal"','primary'):
-    button('چاپ گزارش','print','data-action="print"')+button('ثبت تأخیر جدید','plus','data-action="new-delay"','primary');
+    button('ثبت تأخیر جدید','plus','data-action="new-delay"','primary')+button('چاپ گزارش','print','data-action="print"');
   const quick=personal?[['clock','مشاهدهٔ تأخیرها','تاریخ و وضعیت هر تأخیر','data-page="myDelays"'],['message','ثبت اعتراض','انتخاب تاریخ از سوابق تأخیر','data-action="new-appeal"'],['user','پروفایل من','مشاهده اطلاعات و تغییر رمز','data-page="profile"']]:
     [['plusUser',isAdmin()?'ثبت گروهی دانش‌آموزان':'ثبت تأخیر دانش‌آموز',isAdmin()?'ورود فهرست دانش‌آموزان، عکس و نمرات':'انتخاب دانش‌آموز و تاریخ',isAdmin()?'data-page="manage"':'data-action="new-delay"'],['users','جست‌وجوی دانش‌آموز','جست‌وجو با نام یا کلاس','data-page="students"'],['print','گزارش و چاپ','فهرست دانش‌آموزان و تاریخ‌های تأخیر','data-page="reports"']];
   const intro=personal?'تأخیرهای خود را ببینید و وضعیت اعتراض‌ها را پیگیری کنید.':'وضعیت تأخیرها، اعتراض‌ها و پرونده‌های دانش‌آموزان را بررسی کنید.';
-  const statHTML='<section class="stats" aria-label="خلاصهٔ وضعیت">'+stats.map(([name,value,i,color,note])=>'<article class="stat"><div class="stat-top"><span>'+e(name)+'</span>'+tile(i,color)+'</div><strong>'+fa(value)+'</strong><small>'+e(note)+'</small></article>').join('')+'</section>';
+  const statHTML='<section class="stats" aria-label="خلاصهٔ وضعیت">'+stats.map(([name,value,i,color,note])=>'<article class="stat"><div class="stat-top">'+tile(i,color)+'<span>'+e(name)+'</span></div><strong>'+fa(value)+'</strong><small>'+e(note)+'</small></article>').join('')+'</section>';
   const quickHTML='<div class="quick-grid">'+quick.map(([i,title,sub,attrs],index)=>'<button type="button" class="quick-row" '+attrs+'>'+tile(i,['','blue','peach'][index])+'<span><strong>'+e(title)+'</strong><small>'+e(sub)+'</small></span>'+icon('left')+'</button>').join('')+'</div>';
   return headline('پیشخوان',personal?'خلاصهٔ وضعیت حضور و اعتراض‌های شما':'خلاصهٔ وضعیت حضور و تأخیر دانش‌آموزان',actions)+
-    '<section class="hero"><img class="hero-art" src="'+art+'" alt=""><div class="hero-copy"><span class="hero-tag">'+icon('cap')+e(roleLabel())+'</span><h2>'+e(personal?'سلام، '+me().full_name:'به پیشخوان مدرسه خوش آمدید')+'</h2><p>'+intro+'</p></div></section>'+statHTML+
+    '<section class="hero"><img class="hero-art" src="'+dashboardArt+'" alt=""><div class="hero-copy"><span class="hero-tag">'+icon('cap')+school+'</span><h2>'+e(personal?'سلام، '+me().full_name:'به پیشخوان مدرسه خوش آمدید')+'</h2><p>'+intro+'</p></div></section>'+statHTML+
     '<div class="insights">'+card('روند تأخیرها','تعداد تأخیرهای ثبت‌شده در هر روز',chart(current),'<span class="chart-range">۷ روز اخیر</span>')+card('دسترسی سریع','',quickHTML)+'</div>'+
     (isAdmin()?'<div class="followup-preview">'+followupPreview()+'</div>':'')+
-    card('آخرین تأخیرهای ثبت‌شده','',delayTable(delays.slice(0,5),!personal,false),button('مشاهدهٔ همه','left',personal?'data-page="myDelays"':'data-page="delays"','ghost compact'));
+    '<div class="dashboard-recent'+(personal?'':' with-students')+'">'+
+    card('آخرین تأخیرهای ثبت‌شده','',delayTable(delays.slice(0,5),!personal,false),button('مشاهدهٔ همه','left',personal?'data-page="myDelays"':'data-page="delays"','ghost compact'))+'</div>';
 }
 function chart(records){
   const date=today();
@@ -413,6 +478,11 @@ async function refreshInbox(markRead=false,item=null){
   state.data.inbox=result;
   const counter=document.querySelector('#inbox-unread');
   if(counter){counter.hidden=!result.unread;counter.textContent=fa(result.unread);}
+  const shortcut=document.querySelector('.inbox-shortcut');
+  if(shortcut){
+    shortcut.setAttribute('aria-label',inboxLabel(result.unread));
+    shortcut.querySelector('.unread-dot').hidden=!result.unread;
+  }
   const items=document.querySelector('#inbox-entries');
   if(items){
     const focus=document.activeElement?.dataset;
@@ -1265,7 +1335,7 @@ const actions={
     modal.editing=!modal.editing;
     renderDelayAndFocus(modal.editing?'[name="birth_date"]':'[data-action="edit-birth-date"]');
   },
-  menu:()=>{state.menu=!state.menu;render();document.querySelector(state.menu?'#sidebar .nav-item':'.mobile-toggle')?.focus();},
+  menu:()=>setMenu(!state.menu),
   'followup-settings':()=>{if(isAdmin()) openModal('followupSettings');},
   'move-class':id=>{
     const person=isAdmin()&&student(id);
@@ -1442,9 +1512,15 @@ document.addEventListener('change',async event=>{
   if(event.target.id==='ledger-assignment') await loadLedger(event.target.value,state.ledger?.date??today());
   if(event.target.id==='demo-role') await enterDemo(event.target.value);
 });
+function setMenu(open){
+  state.menu=open&&mobileLayout.matches;
+  render();
+  document.querySelector(state.menu?'.sidebar-close':mobileLayout.matches?'.mobile-toggle':'#main-content')?.focus();
+}
 document.addEventListener('keydown',event=>{
-  if(event.key==='Escape'&&state.menu&&!dialog.open){state.menu=false;render();document.querySelector('.mobile-toggle')?.focus();}
+  if(event.key==='Escape'&&state.menu&&!dialog.open) setMenu(false);
 });
+mobileLayout.addEventListener('change',()=>{if(state.menu) setMenu(false);});
 window.addEventListener('afterprint',()=>document.querySelector('#print-area').replaceChildren());
 async function start(){
   if(!live.hasSession()){login();return;}
