@@ -1,4 +1,4 @@
-import {active,classYear,dayParts,escape as e,fa,monthStart,school,shift,showDate,today} from './domain.js?v=delay-management';
+import {active,classYear,compareStudentNames,dayParts,escape as e,fa,monthStart,school,shift,showDate,today} from './domain.js?v=classroom-notices';
 
 const dateColumns=20;
 const rowsPerPage=40;
@@ -48,7 +48,7 @@ export function reportRows(people,delays,start='',end='',options={}){
     if(!byStudent.has(delay.student_id)) byStudent.set(delay.student_id,[]);
     byStudent.get(delay.student_id).push(delay);
   }
-  return people.flatMap(person=>{
+  return [...people].sort(compareStudentNames).flatMap(person=>{
     const history=classMoves.get(person.id)??[];
     const groups=new Map(reportClasses(person,history,start,end).map(name=>[name,[]]));
     for(const delay of byStudent.get(person.id)??[]){
@@ -70,7 +70,8 @@ function classes(rows){
     groups.get(title).push(row);
   }
   const collator=new Intl.Collator('fa',{numeric:true});
-  return [...groups].sort(([a],[b])=>collator.compare(a,b));
+  return [...groups].sort(([a],[b])=>collator.compare(a,b))
+    .map(([title,students])=>[title,students.sort((a,b)=>compareStudentNames(a.person,b.person))]);
 }
 
 function printClass(title,rows,period,year){

@@ -8,7 +8,7 @@ const seededStudents=[
   ['عرفان رحیمی','دوازدهم انسانی','0010000007'],['امیرحسین نوری','یازدهم ریاضی','0010000008'],
   ['مهدی صادقی','دوازدهم انسانی','0010000009'],['محمدطاها امینی','دهم تجربی','0010000010'],
   ['رضا جعفری','یازدهم ریاضی','0010000011'],['یاسین اکبری','دوازدهم انسانی','0010000012']
-].map(([full_name,class_name,username],index)=>({id:'sample-'+index,full_name,class_name,username,role:'student',created_at:now}));
+].map(([full_name,class_name,username],index)=>({id:'sample-'+index,full_name,family_name:full_name.split(' ').at(-1),class_name,username,role:'student',created_at:now}));
 const admin={id:'manager',full_name:'مدیر دبیرستان',username:'demo_admin',role:'admin',created_at:now};
 const teacher={id:'demo-teacher',full_name:'دبیر آزمایشی',username:'demo_teacher',role:'teacher'};
 const deputy={id:'demo-deputy',full_name:'معاون آزمایشی',username:'demo_deputy',role:'deputy'};
@@ -123,9 +123,9 @@ export async function teachingLedger(id,date){
   const rows=database.students.flatMap(person=>{
     const previous=database.classMoves.find(move=>move.student_id===person.id&&move.effective_on>date)?.previous_class;
     const entry=entries.get(person.id);
-    if(entry) return [{...entry,full_name:person.full_name}];
+    if(entry) return [{...entry,full_name:person.full_name,family_name:person.family_name}];
     if(assignment.archived_at||(previous??person.class_name)!==assignment.class_name) return [];
-    return [{id:person.id,full_name:person.full_name,attendance:null,score:null,note:''}];
+    return [{id:person.id,full_name:person.full_name,family_name:person.family_name,attendance:null,score:null,note:''}];
   });
   return {rows,topic:saved?.topic??'',revision:saved?.revision??0,archived:Boolean(assignment.archived_at)};
 }
@@ -134,9 +134,57 @@ export async function saveTeachingLedger(id,date,revision,topic,rows){
   if(current.archived) throw new Error('KH2_ARCHIVED_ASSIGNMENT');
   if(current.revision!==revision) throw new Error('KH2_LEDGER_CHANGED');
   const allowed=new Set(current.rows.map(row=>row.id));
-  if(rows.some(row=>!allowed.has(row.id))) throw new Error('KH2_INVALID_LEDGER');
+  if(rows.some(row=>!allowed.has(row.id)||(row.attendance&&!['present','absent','late'].includes(row.attendance)))) throw new Error('KH2_INVALID_LEDGER');
   database.ledgers[id+':'+date]={revision:revision+1,topic,rows:rows.filter(row=>row.attendance||row.score!==null||row.note)};
+  const absenceKinds={absent:'lesson_absence',late:'lesson_late'};
+  const notices=new Map(rows.filter(row=>absenceKinds[row.attendance]).map(row=>[row.id,absenceKinds[row.attendance]]));
+  database.inboxItems=database.inboxItems.filter(item=>item.assignment!==id||item.date_on!==date||
+    !Object.values(absenceKinds).includes(item.kind)||notices.get(item.recipientId)===item.kind);
+  const assignment=database.assignments.find(row=>row.id===id);
+  for(const [recipient,kind] of notices){
+    if(!database.inboxItems.some(item=>item.recipientId===recipient&&item.assignment===id&&item.date_on===date&&item.kind===kind)){
+      addClassroomNotification(crypto.randomUUID(),recipient,assignment,date,kind,null);
+    }
+  }
   return revision+1;
+}
+export async function studentCoursework(){
+  if(actor.role!=='student') throw new Error('KH2_FORBIDDEN');
+  const teacherName=id=>[admin,...database.educators].find(person=>person.id===id)?.full_name;
+  const entries=Object.entries(database.ledgers).flatMap(([key,saved])=>{
+    const [id,date_on]=key.split(':');
+    const row=saved.rows.find(entry=>entry.id===actor.id);
+    const assignment=database.assignments.find(entry=>entry.id===id);
+    if(!assignment||!row||(!row.attendance&&row.score==null)) return [];
+    const {class_name,subject,staff_id}=assignment;
+    return [{date_on,class_name,subject,teacher_name:teacherName(staff_id),attendance:row.attendance,score:row.score}];
+  }).sort((left,right)=>right.date_on.localeCompare(left.date_on));
+  const teachers=database.assignments.filter(entry=>!entry.archived_at&&entry.class_name===actor.class_name)
+    .map(({id,class_name,subject,staff_id})=>({id,class_name,subject,teacher_name:teacherName(staff_id)}));
+  return {entries,teachers};
+}
+function addClassroomNotification(id,recipientId,assignment,date_on,kind,message){
+  database.inboxItems.unshift({id,recipientId,kind,date_on,message,assignment:assignment.id,subject:assignment.subject,
+    class_name:assignment.class_name,sender_name:actor.full_name,requestedBy:actor.id,created_at:new Date().toISOString()});
+}
+export async function sendClassroomMessage(id,studentId,date,message,request){
+  const assignment=database.assignments.find(row=>row.id===id&&!row.archived_at);
+  const person=database.students.find(row=>row.id===studentId);
+  if(!assignment||!person||!date||date>today()) throw new Error('KH2_FORBIDDEN');
+  const fromStudent=actor.id===studentId&&person.class_name===assignment.class_name;
+  const fromTeacher=actor.id===assignment.staff_id&&(await teachingLedger(id,date)).rows.some(row=>row.id===studentId);
+  if(!fromStudent&&!fromTeacher) throw new Error('KH2_FORBIDDEN');
+  message=message.trim();
+  if(!request||!message||[...message].length>800) throw new Error('KH2_INVALID_CLASSROOM_MESSAGE');
+  const kind=fromStudent?'student_message':'teacher_message';
+  const recipient=fromStudent?assignment.staff_id:studentId;
+  const existing=database.inboxItems.find(item=>item.id===request);
+  if(existing){
+    if(existing.kind!==kind||existing.recipientId!==recipient||existing.requestedBy!==actor.id||
+      existing.date_on!==date||existing.assignment!==id||existing.message!==message) throw new Error('KH2_CLASSROOM_MESSAGE_CONFLICT');
+    return;
+  }
+  addClassroomNotification(request,recipient,assignment,date,kind,message);
 }
 export async function gradesFor(id){
   if(actor.role!=='admin') throw new Error('KH2_FORBIDDEN');

@@ -1,11 +1,12 @@
-import { digits } from './domain.js?v=delay-management';
+import { digits,fa } from './domain.js?v=delay-management';
 
 const teacherCodeHeaders=['کد معلم (نام کاربری)','کد معلم','نام کاربری','username'];
 const privateHeader=/رمز|گذرواژه|password|passwd|secret/i;
 const normalizeHeader=value=>String(value??'').replace(/[يى]/g,'ی').replace(/ك/g,'ک')
   .replace(/[\s\u200c\u200e\u200f\ufeff]+/g,' ').trim().toLowerCase();
 
-export const attendanceLabels={present:'حاضر',absent:'غایب',late:'با تأخیر',excused:'غیبت موجه'};
+export const attendanceLabels={present:'حاضر',absent:'غایب',late:'با تأخیر'};
+export const displayScore=value=>fa(digits(value)).replace(/\./g,'٫');
 
 export function scoreValue(value){
   const text=digits(value).trim().replace('٫','.');

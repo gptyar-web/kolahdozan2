@@ -1,10 +1,10 @@
-import * as live from './api.js?v=teaching-ledger';
-import * as demo from './demo.js?v=teaching-ledger';
+import * as live from './api.js?v=classroom-notices';
+import * as demo from './demo.js?v=classroom-notices';
 import { icon } from './icons.js';
-import {downloadReport,indexClassMoves,loadSheetJS,printLedger,reportDate,reportPeriod,reportRows as buildReportRows,studentClassOn} from './report.js?v=teaching-ledger';
-import {followupRows,matchesInClass,notificationTitles,parentRequestMessage} from './followup.js?v=parent-requests';
-import { active,calendarDays,classYear,dayParts,digits,escape as e,fa,importRows,matches,monthStart,school,shift,showDate,today } from './domain.js?v=delay-management';
-import {attendanceLabels,scoreValue,workbookStaffDetails} from './staff.js?v=teaching-ledger';
+import {downloadReport,indexClassMoves,loadSheetJS,printLedger,reportDate,reportPeriod,reportRows as buildReportRows,studentClassOn} from './report.js?v=classroom-notices';
+import {followupRows,isClassroomNotification,matchesInClass,notificationTitles,parentRequestMessage} from './followup.js?v=classroom-notices';
+import { active,calendarDays,classYear,compareStudentNames,dayParts,digits,escape as e,fa,importRows,localizeGradeList,matches,monthStart,school,shift,showDate,today } from './domain.js?v=classroom-notices';
+import {attendanceLabels,displayScore,scoreValue,workbookStaffDetails} from './staff.js?v=classroom-notices';
 
 const app=document.querySelector('#app');
 const dialog=document.querySelector('#modal');
@@ -13,6 +13,8 @@ const roleNames={admin:'مدیر سامانه',gate:'نمایندهٔ درب م�
 const statusNames={active:'تأخیر ثبت‌شده',pending:'در انتظار بررسی',approved:'اعتراض پذیرفته شد',rejected:'اعتراض رد شد',cancelled:'لغوشده'};
 const pageNames={dashboard:'پیشخوان',students:'دانش‌آموزان',records:'پرونده اطلاعاتی دانش‌آموز',delays:'ثبت و سوابق تأخیر',appeals:'اعتراض‌ها',myDelays:'تأخیرهای من',myAppeals:'اعتراض‌های من',reports:'گزارش و چاپ',staff:'نمایندگان درب مدرسه',followup:'پیگیری تأخیرها',parentRequests:notificationTitles.parent_requested,inbox:'اعلان‌ها',manage:'ثبت گروهی',profile:'پروفایل من',educators:'دبیران و معاونان',teaching:'کلاس‌ها و درس‌های من',ledger:'دفتر دیجیتالی'};
 const pageIcons={dashboard:'home',students:'users',records:'file',delays:'clock',appeals:'message',myDelays:'clock',myAppeals:'message',reports:'report',staff:'shield',followup:'clock',parentRequests:'users',inbox:'message',manage:'upload',profile:'user',educators:'users',teaching:'cap',ledger:'file'};
+pageNames.coursework='نمرات و حضور من';
+pageIcons.coursework='cap';
 const state={mode:'login',page:'dashboard',data:null,photos:{},query:'',className:'',filterDate:'',reportRange:reportPeriod('all'),reportExcuse:'all',pageIndex:0,menu:false,modal:null,appealFilter:'all',loadId:0,ledger:null};
 let toastTimer;
 let refreshTimer;
@@ -39,11 +41,11 @@ const student=id=>allStudents().find(p=>p.id===id);
 const rowsFor=id=>state.data.delays.filter(row=>row.student_id===id);
 function allowed(){
   if(isEducator()) return ['teaching','ledger','inbox','profile'];
-  if(!canRecord()) return isStudent()?['dashboard','myDelays','myAppeals','inbox','profile']:['inbox','profile'];
+  if(!canRecord()) return isStudent()?['dashboard','coursework','myDelays','myAppeals','inbox','profile']:['inbox','profile'];
   const pages=['dashboard','students','records','delays','appeals','reports','parentRequests'];
   if(isAdmin()) pages.push('followup','staff','educators','manage');
   if(isAdmin()&&state.data.educators?.assignments?.some(row=>row.staff_id===me().id)) pages.push('ledger');
-  if(isStudentGate()) pages.push('myDelays','myAppeals');
+  if(isStudentGate()) pages.push('coursework','myDelays','myAppeals');
   return [...pages,'inbox','profile'];
 }
 const hasValue=(actual,wanted)=>actual===wanted?' selected':'';
@@ -87,9 +89,12 @@ async function fetchData(){
   const [{overview,...followup},inbox]=await Promise.all([api.followup(),api.inbox()]);
   if(id!==state.loadId) return false;
   const needsDirectory=['admin','teacher','deputy'].includes(overview.me.role);
-  const educators=needsDirectory?await api.educators().catch(error=>({error:friendly(error)})):null;
+  const [educators,coursework]=await Promise.all([
+    needsDirectory?api.educators().catch(error=>({error:friendly(error)})):null,
+    overview.me.role==='student'?api.studentCoursework().catch(error=>({error:friendly(error)})):null
+  ]);
   if(id!==state.loadId) return false;
-  state.data={...overview,followup,inbox,educators,classHistory:indexClassMoves(followup.class_moves)};
+  state.data={...overview,students:[...overview.students].sort(compareStudentNames),followup,inbox,educators,coursework,classHistory:indexClassMoves(followup.class_moves)};
   if(!allowed().includes(state.page)) state.page=allowed()[0];
   return true;
 }
@@ -131,7 +136,7 @@ function render(){
   const demoBadge=state.mode==='demo'?'<span class="badge">نسخهٔ آزمایشی</span>':'';
   const switcher=state.mode==='demo'?'<div class="nav-group"><p class="nav-label">تغییر نقش آزمایشی</p><select id="demo-role" aria-label="نقش آزمایشی">'+Object.entries(roleNames).map(([id,title])=>'<option value="'+id+'"'+hasValue(isStudentGate()?'gate':me().role,id)+'>'+e(title)+'</option>').join('')+'</select></div>':'';
   app.innerHTML='<div class="layout'+(state.menu?' menu-open':'')+'"><button id="screen-mask" type="button" data-action="menu" aria-label="بستن منو"></button><aside id="sidebar" class="sidebar'+(state.menu?' open':'')+'" aria-label="منوی سامانه">'+branding()+'<nav><div class="nav-group"><p class="nav-label">منوی اصلی</p>'+allowed().filter(x=>!['staff','manage','myDelays','myAppeals','profile'].includes(x)).map(nav).join('')+'</div><div class="nav-group"><p class="nav-label">'+(isAdmin()?'مدیریت سامانه':'حساب کاربری')+'</p>'+allowed().filter(x=>['staff','manage','myDelays','myAppeals','profile'].includes(x)).map(nav).join('')+'</div></nav>'+switcher+'<div class="sidebar-bottom"><div class="school-term">'+tile('calendar')+'<div><strong>سال تحصیلی</strong><small>'+classYear()+'</small></div></div><button class="nav-item" type="button" data-action="logout">'+icon('logout')+'خروج از حساب</button></div></aside><header class="topbar"><div class="crumb">'+button('','menu','data-action="menu" aria-label="منو" aria-controls="sidebar" aria-expanded="'+state.menu+'"','icon mobile-toggle')+'<span class="muted">پنل '+e(roleLabel())+'</span>'+icon('left')+'<span>'+e(pageLabel)+'</span></div><div class="top-actions">'+demoBadge+'<span class="top-date">'+icon('calendar')+e(showDate(today(),'long'))+'</span><span class="top-divider"></span><details class="identity"><summary aria-label="منوی حساب کاربری">'+avatar(me())+'<span class="identity-label"><strong>'+e(me().full_name)+'</strong><small>'+e(roleLabel())+'</small></span>'+icon('down')+'</summary><div class="account-menu">'+nav('profile')+'<button class="nav-item" type="button" data-action="logout">'+icon('logout')+'خروج از حساب</button></div></details></div></header><main class="main" id="main-content" tabindex="-1">'+({
-    dashboard,students,records:recordsPage,delays:()=>delays(false),appeals:()=>appeals(false),myDelays:()=>delays(true),myAppeals:()=>appeals(true),reports,staff,followup:followupPage,parentRequests:parentRequestsPage,inbox:inboxPage,manage,profile,educators:educatorsPage,teaching:myTeachingPage,ledger:ledgerPage
+    dashboard,students,records:recordsPage,delays:()=>delays(false),appeals:()=>appeals(false),myDelays:()=>delays(true),myAppeals:()=>appeals(true),reports,staff,followup:followupPage,parentRequests:parentRequestsPage,inbox:inboxPage,manage,profile,educators:educatorsPage,teaching:myTeachingPage,ledger:ledgerPage,coursework:courseworkPage
   }[state.page]())+'</main></div>';
 }
 function headline(title,description='',actions=''){
@@ -169,7 +174,7 @@ function selectedDelays(){
     if(!person||(state.filterDate&&delay.date_on!==state.filterDate)) return false;
     const name=studentClassOn(person,delay.date_on,state.data.classHistory.get(person.id));
     return (!state.className||name===state.className)&&matchesInClass(person,state.query,name);
-  });
+  }).sort((left,right)=>compareStudentNames(people.get(left.student_id),people.get(right.student_id)));
 }
 function paging(count){
   const pages=Math.max(1,Math.ceil(count/limit));
@@ -383,7 +388,8 @@ function followupPage(){
 function inboxEntries(){
   const {items}=state.data.inbox;
   return items.map(item=>'<article class="card appeal-card inbox-item'+(item.read_at?'':' unread')+'"><div><h2>'+e(notificationTitles[item.kind])+'</h2>'+
-    (item.kind==='parent_requested'?'<p>'+e(parentRequestMessage)+'</p><p class="muted">تاریخ درخواست ':
+    (isClassroomNotification(item.kind)?'<p>'+e([item.sender_name,item.subject,item.class_name].filter(Boolean).join(' · '))+'</p><p class="muted">تاریخ ':
+      item.kind==='parent_requested'?'<p>'+e(parentRequestMessage)+'</p><p class="muted">تاریخ درخواست ':
       '<p class="muted">تاریخ تأخیر ')+'<span class="ltr">'+e(showDate(item.date_on))+'</span></p></div>'+
     '<div class="form-actions">'+(!item.read_at?badge('خوانده‌نشده','pending'):'')+
     button('مشاهده','left','data-action="open-notification" data-id="'+e(item.id)+'"','compact ghost')+'</div></article>').join('')||
@@ -480,22 +486,42 @@ function ledgerEntries(result){
     const id=e(row.id), name=e(row.full_name);
     const options=Object.entries(attendanceLabels).map(([value,label])=>'<option value="'+value+'"'+hasValue(row.attendance,value)+'>'+e(label)+'</option>').join('');
     return '<tr><th scope="row">'+name+'</th><td><select name="attendance-'+id+'" aria-label="حضور '+name+'"'+disabled+
-      '><option value="">ثبت نشده</option>'+options+'</select></td><td><input type="text" dir="ltr" inputmode="decimal" size="5" maxlength="5" name="score-'+id+'" value="'+e(row.score??'')+
-      '" aria-label="نمرهٔ '+name+'"'+disabled+'></td><td><textarea rows="2" name="note-'+id+'" maxlength="300" aria-label="یادداشت '+name+'"'+disabled+'>'+e(row.note)+'</textarea></td></tr>';
+      '><option value="">ثبت نشده</option>'+options+'</select></td><td><input type="text" dir="ltr" inputmode="decimal" size="5" maxlength="5" data-grade name="score-'+id+'" value="'+e(displayScore(row.score))+
+      '" aria-label="نمرهٔ '+name+'"'+disabled+'></td><td><textarea rows="2" name="note-'+id+'" maxlength="300" aria-label="یادداشت '+name+'"'+disabled+'>'+e(row.note)+'</textarea></td>'+
+      (result.archived?'':'<td>'+button('ارسال اعلان','message','data-action="teacher-notice" data-id="'+id+'" aria-label="ارسال اعلان به '+name+'"','compact')+'</td>')+'</tr>';
   }).join('');
+  const headers=['نام دانش‌آموز','حضور و غیاب','نمره از ۲۰','یادداشت'];
+  if(!result.archived) headers.push('اعلان');
+  const bulk=!result.archived&&result.rows.length?'<div class="form-actions">'+
+    button('ثبت حاضر برای همه','check','data-action="bulk-presence" data-id="all"','compact')+
+    button('ثبت حاضر برای افرادی که غایب ثبت نشده است','check','data-action="bulk-presence" data-id="except-absent"','compact')+'</div>':'';
   return card('ثبت جلسه','',
     '<form data-form="ledger-save" class="stack"><label class="field">موضوع جلسه<textarea name="topic" rows="2" maxlength="500"'+disabled+'>'+e(result.topic)+'</textarea></label>'+
-    table(['نام دانش‌آموز','حضور و غیاب','نمره از ۲۰','یادداشت'],rows||empty('برای این تاریخ دانش‌آموزی در دفتر نمایش داده نمی‌شود.',4))+
+    bulk+table(headers,rows||empty('برای این تاریخ دانش‌آموزی در دفتر نمایش داده نمی‌شود.',headers.length))+
     '<div data-form-message hidden></div>'+(result.archived?'<p class="notice">این دفتر بایگانی شده و فقط خواندنی است.</p>':
       '<div class="form-actions">'+submit('ذخیرهٔ دفتر','check')+
       button('بارگیری دوباره','refresh','data-action="reload-ledger"')+'</div>')+'</form>');
+}
+function courseworkPage(){
+  const data=state.data.coursework;
+  const heading=headline(pageNames.coursework,'',
+    (data?.teachers?.length?button('ارسال اعلان به دبیر','message','data-action="student-notice"','primary'):'')+
+    button('تازه‌سازی','refresh','data-action="refresh-coursework"'));
+  if(data?.error) return heading+'<p class="notice error" role="alert">'+e(data.error)+'</p>';
+  const rows=(data?.entries??[]).map(row=>'<tr><td><bdi dir="ltr">'+e(showDate(row.date_on))+'</bdi></td><td>'+e(row.subject)+'</td><td>'+e(row.teacher_name)+
+    '</td><td>'+e(row.class_name)+'</td><td>'+e(attendanceLabels[row.attendance]??'—')+'</td><td><bdi dir="ltr">'+e(row.score==null?'—':displayScore(row.score))+'</bdi></td></tr>').join('');
+  return heading+card('سوابق دفتر دبیران','',table(['تاریخ','درس','دبیر','کلاس','حضور','نمره از ۲۰'],
+    rows||empty('هنوز دبیران نمره یا وضعیت حضوری برای شما ثبت نکرده‌اند.',6)));
 }
 async function loadLedger(assignment,date){
   const current={assignment,date,result:null,error:'',loading:Boolean(assignment)};
   state.ledger=current;
   render();
   if(!assignment) return;
-  try{current.result=await backend().teachingLedger(assignment,date);}
+  try{
+    const result=await backend().teachingLedger(assignment,date);
+    current.result={...result,rows:[...result.rows].sort(compareStudentNames)};
+  }
   catch(error){current.error=friendly(error);}
   current.loading=false;
   if(state.ledger===current&&state.page==='ledger') render();
@@ -507,7 +533,7 @@ function manage(){
     importCard('grades','file','ثبت گروهی نمرات','کد ملی، نام درس، نوبت و نمرهٔ ۰ تا ۲۰','کد ملی،درس،نوبت،نمره\n۰۰۱۰۰۰۰۰۰۱،ریاضی،نوبت اول،۱۸٫۵')+'</div>';
 }
 function importCard(kind,i,title,sub,example){
-  return '<section class="card setting-card"><div class="setting-title">'+tile(i,kind==='grades'?'mint':'')+'<div><h2>'+title+'</h2><p>'+sub+'</p></div></div><form data-form="import" data-kind="'+kind+'" class="stack"><label class="field">فایل فهرست<input type="file" name="file" accept=".csv,.tsv,.txt,text/csv,text/plain"><small>فایل CSV، TSV یا متن با کدگذاری UTF-8 و حداکثر ۳۰۰ ردیف</small></label><label class="field">یا ورود مستقیم فهرست<textarea name="text" rows="4" placeholder="'+e(example)+'"></textarea></label><div data-form-message hidden></div><div class="form-actions">'+submit(kind==='students'?'ثبت دانش‌آموزان':'ثبت نمرات','upload')+'</div></form></section>';
+  return '<section class="card setting-card"><div class="setting-title">'+tile(i,kind==='grades'?'mint':'')+'<div><h2>'+title+'</h2><p>'+sub+'</p></div></div><form data-form="import" data-kind="'+kind+'" class="stack"><label class="field">فایل فهرست<input type="file" name="file" accept=".csv,.tsv,.txt,text/csv,text/plain"><small>فایل CSV، TSV یا متن با کدگذاری UTF-8 و حداکثر ۳۰۰ ردیف</small></label><label class="field">یا ورود مستقیم فهرست<textarea name="text" rows="4" '+(kind==='grades'?'data-grade-list ':'')+'placeholder="'+e(example)+'"></textarea></label><div data-form-message hidden></div><div class="form-actions">'+submit(kind==='students'?'ثبت دانش‌آموزان':'ثبت نمرات','upload')+'</div></form></section>';
 }
 function profile(){
   const person=educator(me().id);
@@ -634,7 +660,7 @@ function personModal(){
   let details=delayTable(records,false,false,canRecord());
   if(tab==='grades'){
     details=gradesError?'<div class="notice error">'+e(gradesError)+'</div>':!grades?'<div class="notice" role="status">در حال دریافت نمرات…</div>':
-      table(['درس','نوبت','نمره'],grades.map(g=>'<tr><td>'+e(g.subject)+'</td><td>'+e(g.term)+'</td><td>'+fa(g.score)+'</td></tr>').join('')||empty('هنوز نمره‌ای ثبت نشده است.',3));
+      table(['درس','نوبت','نمره'],grades.map(g=>'<tr><td>'+e(g.subject)+'</td><td>'+e(g.term)+'</td><td>'+e(displayScore(g.score))+'</td></tr>').join('')||empty('هنوز نمره‌ای ثبت نشده است.',3));
   }
   const transfer=isAdmin()?button('جابه‌جایی کلاس','users','data-action="move-class" data-id="'+e(id)+'"','compact'):'';
   return modalFrame('پروندهٔ دانش‌آموز',profileInfo+'<div class="tabs">'+recordButton(id)+transfer+'</div>'+tabs+details);
@@ -725,6 +751,24 @@ function inboxParentModal(){
   return modalFrame(pageNames.parentRequests,'<div class="stack"><p>'+e(parentRequestMessage)+'</p>'+
     '<p class="muted">تاریخ درخواست <span class="ltr">'+e(showDate(state.modal.item.date_on))+'</span></p></div>');
 }
+function classroomNoticeModal(){
+  const {item}=state.modal;
+  const message=item.message??(item.kind==='lesson_absence'?'وضعیت حضور شما در این جلسه «غایب» ثبت شد.':'ورود شما به این جلسه با تأخیر ثبت شد.');
+  return modalFrame(notificationTitles[item.kind],'<div class="stack"><p>'+
+    e([item.sender_name,item.subject,item.class_name,showDate(item.date_on)].filter(Boolean).join(' · '))+
+    '</p><p class="notice">'+message.split('\n').map(e).join('<br>')+'</p></div>');
+}
+function classroomComposeModal(){
+  const {target}=state.modal;
+  const recipients=target?'<p>برای '+e(target.full_name)+' · '+e(showDate(target.date))+'</p>':
+    '<label class="field">دبیر و درس<select name="assignment" required><option value="">انتخاب دبیر</option>'+
+    (state.data.coursework?.teachers??[]).map(row=>'<option value="'+e(row.id)+'">'+e(row.teacher_name+' · '+row.subject)+'</option>').join('')+
+    '</select></label>';
+  return modalFrame(target?'ارسال اعلان به دانش‌آموز':'ارسال اعلان به دبیر',
+    '<form data-form="classroom-message" class="stack">'+recipients+
+    '<label class="field">متن اعلان<textarea name="message" rows="4" maxlength="800" required></textarea></label>'+
+    '<div data-form-message hidden></div><div class="form-actions">'+submit('ارسال اعلان','message')+'</div></form>');
+}
 function followupSettingsModal(){
   const {period,threshold}=state.data.followup.settings;
   return modalFrame('تنظیم هشدار تأخیر','<form data-form="followup-settings" class="stack">'+
@@ -782,6 +826,7 @@ function staffImportModal(){
 }
 function renderModal(){
   const methods={studentRecord:studentRecordModal,parentRequest:parentRequestModal,inboxParent:inboxParentModal,inboxDelay:inboxDelayModal,followupSettings:followupSettingsModal,classMove:classMoveModal,editDelay:delayChangeEditor,cancelDelay:delayChangeEditor,history:delayHistoryModal,revokeGate:revokeGateModal,reportDate:reportDateModal,delay:delayModal,appeal:appealModal,review:reviewModal,gate:gateModal,person:personModal,teacherAssignment:teacherAssignmentModal,staffPassword:staffPasswordModal,staffDetails:staffDetailsModal,staffImport:staffImportModal,
+    classroomNotice:classroomNoticeModal,classroomCompose:classroomComposeModal,
     ledgerDate:()=>modalFrame('انتخاب تاریخ دفتر',calendar(state.modal.visible,new Set([state.modal.selected]))),
     date:()=>modalFrame('فیلتر تاریخ گزارش',calendar(state.modal.visible,new Set([state.modal.selected])))};
   dialog.innerHTML=methods[state.modal.type]();
@@ -930,15 +975,31 @@ const forms={
   'ledger-save':async(form,data)=>{
     const selection=state.ledger;
     const result=selection?.result;
-    if(!result||result.archived) return;
+    if(!result||result.archived||selection.saving) return;
     const topic=data.get('topic').trim();
     const rows=result.rows.map(row=>({...row,attendance:data.get('attendance-'+row.id)||null,
       score:scoreValue(data.get('score-'+row.id)),note:data.get('note-'+row.id).trim()}));
-    const revision=await backend().saveTeachingLedger(selection.assignment,selection.date,result.revision,topic,rows);
-    if(state.ledger===selection){
-      selection.result={...result,topic,rows,revision};
-      feedback(form,'دفتر این تاریخ ذخیره شد.','ok');
-    }
+    selection.saving=true;
+    try{
+      const revision=await backend().saveTeachingLedger(selection.assignment,selection.date,result.revision,topic,rows);
+      if(state.ledger===selection){
+        selection.result={...result,topic,rows,revision};
+        feedback(form,'دفتر این تاریخ ذخیره شد.','ok');
+      }
+    }finally{selection.saving=false;}
+  },
+  'classroom-message':async(form,data)=>{
+    const modal=state.modal;
+    if(modal?.type!=='classroomCompose') return;
+    const target=modal.target;
+    const message=data.get('message').trim();
+    if(!message) throw new Error('KH2_INVALID_CLASSROOM_MESSAGE');
+    modal.saving=true;
+    try{
+      await backend().sendClassroomMessage(target?.assignment??data.get('assignment'),target?.id??me().id,
+        target?.date??modal.date,message,modal.request);
+      if(state.modal===modal){closeModal();notify('اعلان ارسال شد.');}
+    }finally{modal.saving=false;}
   },
   'parent-request':async()=>{
     const modal=state.modal;
@@ -1178,6 +1239,26 @@ const actions={
     openModal('ledgerDate',{selected:date,visible:date});
   },
   'reload-ledger':()=>loadLedger(state.ledger.assignment,state.ledger.date),
+  'bulk-presence':mode=>{
+    const ledger=state.ledger;
+    if(ledger?.saving||!ledger?.result||ledger.result.archived) return;
+    const form=document.querySelector('[data-form="ledger-save"]');
+    for(const field of form.querySelectorAll('select[name^="attendance-"]')){
+      if(mode==='all'||field.value!=='absent') field.value='present';
+    }
+    form.requestSubmit(form.querySelector('[type="submit"]'));
+  },
+  'teacher-notice':id=>{
+    const ledger=state.ledger;
+    const person=ledger?.result?.rows.find(row=>row.id===id);
+    if(person&&!ledger.result.archived){
+      openModal('classroomCompose',{target:{id,full_name:person.full_name,assignment:ledger.assignment,date:ledger.date},request:crypto.randomUUID()});
+    }
+  },
+  'student-notice':()=>{
+    if(isStudent()&&state.data.coursework?.teachers?.length) openModal('classroomCompose',{date:today(),request:crypto.randomUUID()});
+  },
+  'refresh-coursework':()=>reload(),
   'edit-birth-date':()=>{
     const modal=state.modal;
     if(!isAdmin()||modal?.type!=='studentRecord'||!modal.record) return;
@@ -1202,6 +1283,10 @@ const actions={
     await refreshInbox(false,id);
     if(item.kind==='parent_requested'){
       openModal('inboxParent',{item});
+      return;
+    }
+    if(isClassroomNotification(item.kind)){
+      openModal('classroomNotice',{item});
       return;
     }
     if(!await fetchData()) return;
@@ -1332,7 +1417,15 @@ document.addEventListener('click',async event=>{
   catch(error){notify(friendly(error),'error');}
 });
 document.addEventListener('input',event=>{
-  if(event.target.id==='search-people'){
+  const field=event.target;
+  if(field.matches('[data-grade],[data-grade-list]')){
+    const formatted=field.hasAttribute('data-grade')?displayScore(field.value):localizeGradeList(field.value);
+    if(formatted!==field.value){
+      const {selectionStart,selectionEnd}=field;
+      field.value=formatted;
+      field.setSelectionRange(selectionStart,selectionEnd);
+    }
+  }else if(event.target.id==='search-people'){
     state.query=event.target.value;state.pageIndex=0;updateList();
   }else if(event.target.id==='delay-people-search'){
     const selection=delaySelection();

@@ -104,7 +104,7 @@ test('class reports respect inclusive dates and print twenty separate month/day 
   const people=[{id:'1',full_name:'دانش‌آموز نمونه',class_name:'۷۰۱'},{id:'2',full_name:'دانش‌آموز دیگر',class_name:'۷۰۲'}];
   const delay=(date_on,status='active')=>({student_id:'1',date_on,status});
   const rows=reportRows(people,[delay('2026-11-16'),delay('2026-11-15','cancelled'),delay('2026-11-13','approved'),delay('2026-11-14'),delay('2026-11-12')],'2026-11-13','2026-11-16');
-  assert.deepEqual(rows.map(row=>row.dates),[['2026-11-14','2026-11-16'],[]]);
+  assert.deepEqual(Object.fromEntries(rows.map(row=>[row.person.id,row.dates])),{'1':['2026-11-14','2026-11-16'],'2':[]});
   assert.deepEqual(reportPeriod('week','2026-11-16'),{start:'2026-11-14',end:'2026-11-16'});
   assert.deepEqual(reportPeriod('month','2026-11-16'),{start:'2026-10-23',end:'2026-11-16'});
   assert.equal(reportDate('2026-11-16'),'۲۵/۰۸');

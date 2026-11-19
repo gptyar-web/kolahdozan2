@@ -16,6 +16,15 @@ export function fa(value) {
 export function normalize(value) {
   return digits(value).replace(/[يى]/g,'ی').replace(/ك/g,'ک').replace(/[‌‍\s]+/g,' ').trim().toLowerCase();
 }
+const nameCollator = new Intl.Collator('fa', {sensitivity:'base',numeric:true});
+export function compareStudentNames(left,right) {
+  const leftName=normalize(left?.full_name);
+  const rightName=normalize(right?.full_name);
+  const leftFamily=normalize(left?.family_name)||leftName.split(' ').at(-1);
+  const rightFamily=normalize(right?.family_name)||rightName.split(' ').at(-1);
+  return nameCollator.compare(leftFamily,rightFamily)||nameCollator.compare(leftName,rightName)||
+    String(left?.id??'').localeCompare(String(right?.id??''));
+}
 export function escape(value) {
   return String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 }
@@ -74,6 +83,17 @@ function separator(line) {
     if(!quoted && Object.hasOwn(counts,char)) counts[char]++;
   }
   return separators.sort((a,b)=>counts[b]-counts[a])[0];
+}
+export function localizeGradeList(value) {
+  const delimiter=separator(value.replace(/^\uFEFF/,'').trimStart().split(/\r?\n/,1)[0]);
+  let quoted=false,column=0;
+  return [...value].map(char=>{
+    if(char==='"') quoted=!quoted;
+    if(!quoted&&char==='\n') column=0;
+    else if(!quoted&&char===delimiter) column++;
+    else if(column===3) return fa(digits(char)).replace('.','٫');
+    return char;
+  }).join('');
 }
 export function importRows(text, kind) {
   const input=String(text).replace(/^\uFEFF/,'').trim();

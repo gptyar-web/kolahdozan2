@@ -90,6 +90,9 @@ export const importStaffDetails=rows=>rpc('import_staff_details',{p_rows:rows});
 export const teachingLedger=(assignment,date)=>rpc('teaching_ledger',{p_assignment:assignment,p_date:date});
 export const saveTeachingLedger=(assignment,date,revision,topic,rows)=>
   rpc('save_teaching_ledger',{p_assignment:assignment,p_date:date,p_revision:revision,p_topic:topic,p_rows:rows});
+export const studentCoursework=()=>rpc('student_coursework');
+export const sendClassroomMessage=(assignment,student,date,message,request)=>
+  rpc('send_classroom_message',{p_assignment:assignment,p_student:student,p_date:date,p_message:message,p_request:request});
 export const teacherAssignment=(staff,className,subject,remove=null)=>
   rpc('set_teacher_assignment',{p_staff:staff,p_class:className,p_subject:subject,p_remove:remove});
 export const setBirthDate=(id,date)=>rpc('set_birth_date',{p_student:id,p_birth_date:date});
@@ -149,6 +152,8 @@ const messages={
   KH2_ARCHIVED_ASSIGNMENT:'این تخصیص بایگانی شده و دفتر آن فقط خواندنی است.',
   KH2_INVALID_LEDGER:'اطلاعات دفتر معتبر نیست. نمره باید از ۰ تا ۲۰ و حداکثر تا دو رقم اعشار باشد.',
   KH2_LEDGER_CHANGED:'دفتر این تاریخ در صفحهٔ دیگری تغییر کرده است. تاریخ را دوباره بارگیری کنید.',
+  KH2_INVALID_CLASSROOM_MESSAGE:'متن اعلان را در حداکثر ۸۰۰ نویسه وارد کنید.',
+  KH2_CLASSROOM_MESSAGE_CONFLICT:'این درخواست قبلاً با متن دیگری ثبت شده است. پنجره را دوباره باز کنید.',
   KH2_PASSWORD_ALREADY_ISSUED:'رمز اولیهٔ این حساب قبلاً صادر شده است.',
   KH2_INVALID_SUBJECT:'نام درس را وارد کنید. حداکثر ۱۰۰ نویسه.',
   KH2_UNCHANGED_CLASS:'کلاس مقصد با کلاس فعلی یکسان است.',
